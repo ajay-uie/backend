@@ -120,27 +120,66 @@ app.get("/api/health-check", (req, res) => {
   });
 });
 
+// ✅ Health check alias (for frontend compatibility)
+app.get("/api/health", (req, res) => {
+  res.status(200).json({
+    success: true,
+    status: "OK",
+    timestamp: new Date().toISOString(),
+    environment: NODE_ENV,
+    firebase: !!db,
+    socketConnections: socketServer ? (socketServer.getConnectionCount ? socketServer.getConnectionCount() : 0) : 0,
+    uptime: process.uptime(),
+  });
+});
+
+// ✅ Root route
+app.get("/", (req, res) => {
+  res.status(200).json({
+    success: true,
+    message: "Fragransia Backend API",
+    version: "1.0.0",
+    environment: NODE_ENV,
+    timestamp: new Date().toISOString(),
+    endpoints: {
+      health: "/api/health",
+      docs: "/api/docs",
+      auth: "/api/auth",
+      admin: "/api/admin",
+      products: "/api/products",
+      orders: "/api/orders",
+      cart: "/api/cart",
+      users: "/api/users",
+      wishlist: "/api/wishlist",
+      reviews: "/api/reviews",
+      coupons: "/api/coupons",
+      payments: "/api/payments"
+    }
+  });
+});
+
 // ✅ API Documentation route
 app.use("/api/docs", require("./routes/api-docs"));
 
-// ✅ API Routes with appropriate rate limiting
+// ✅ API Routes with appropriate rate limiting - UPDATED TO USE NEW ROUTES
 
 // Authentication routes (strict rate limiting)
-app.use("/api/auth", authLimiter, require("./routes/auth"));
-app.use("/api/auth-enhanced", authLimiter, require("./routes/auth-enhanced"));
-app.use("/api/admin/auth", authLimiter, require("./routes/adminAuth"));
+app.use("/api/auth", authLimiter, require("./routes_new/auth"));
+app.use("/api/admin/auth", authLimiter, require("./routes_new/adminAuth"));
 
 // Admin routes (moderate rate limiting)
 app.use("/api/admin", strictLimiter, require("./routes/admin"));
 
-// Public API routes (standard rate limiting)
-app.use('/api/products', apiLimiter, require('./routes/products_simple'));
-app.use("/api/orders", apiLimiter, require("./routes/orders"));
-app.use("/api/cart", apiLimiter, require("./routes/cart"));
-app.use("/api/users", apiLimiter, require("./routes/users"));
-app.use("/api/wishlist", apiLimiter, require("./routes/wishlist"));
+// Public API routes (standard rate limiting) - USING NEW ROUTES
+app.use('/api/products', apiLimiter, require('./routes_new/products'));
+app.use("/api/orders", apiLimiter, require("./routes_new/orders"));
+app.use("/api/cart", apiLimiter, require("./routes_new/cart"));
+app.use("/api/users", apiLimiter, require("./routes_new/users"));
+app.use("/api/wishlist", apiLimiter, require("./routes_new/wishlist"));
+app.use("/api/coupons", apiLimiter, require("./routes_new/coupons"));
+
+// Legacy routes (keeping for backward compatibility)
 app.use("/api/reviews", apiLimiter, require("./routes/reviews"));
-app.use("/api/coupons", apiLimiter, require("./routes/coupons"));
 app.use("/api/realtime", apiLimiter, require("./routes/realtime"));
 
 // Payment routes (strict rate limiting)

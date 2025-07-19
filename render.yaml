@@ -1,0 +1,57 @@
+services:
+  - type: web
+    name: fragransia-backend
+    env: node
+    plan: starter
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/health-check
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: JWT_SECRET
+        generateValue: true
+      - key: FRONTEND_URL
+        value: https://www.fragransia.in
+      # Firebase Configuration - Updated to match backend expectations
+      - key: FIREBASE_SERVICE_ACCOUNT_KEY_BASE64
+        sync: false
+      - key: FIREBASE_PROJECT_ID
+        value: fragransia-dbms
+      - key: FIREBASE_STORAGE_BUCKET
+        value: fragransia-dbms.appspot.com
+      - key: FIREBASE_DATABASE_URL
+        value: https://fragransia-dbms-default-rtdb.asia-southeast1.firebasedatabase.app
+      # Razorpay Configuration
+      - key: RAZORPAY_KEY_ID
+        sync: false
+      - key: RAZORPAY_KEY_SECRET
+        sync: false
+      # Email Configuration
+      - key: EMAIL_HOST
+        value: smtp.gmail.com
+      - key: EMAIL_PORT
+        value: 587
+      - key: EMAIL_USER
+        sync: false
+      - key: EMAIL_PASS
+        sync: false
+      # Admin Configuration
+      - key: ADMIN_EMAIL
+        value: admin@fragransia.in
+      - key: ADMIN_PASSWORD
+        value: Admin@ajay#9196
+      # CORS Configuration
+      - key: ALLOWED_ORIGINS
+        value: https://www.fragransia.in,http://localhost:3000,http://localhost:3001
+      # WhatsApp Bot Configuration (optional)
+      - key: WHATSAPP_API_URL
+        sync: false
+      - key: WHATSAPP_API_TOKEN
+        sync: false
+    autoDeploy: true
+    branch: main
+    rootDir: backend
+

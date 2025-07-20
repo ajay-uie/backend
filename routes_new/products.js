@@ -1,7 +1,7 @@
 const express = require('express');
 const { body, validationResult } = require('express-validator');
 const { db, admin } = require('../auth/firebaseConfig');
-const verifyAuth = require('../middleware/authMiddleware');
+const { authMiddleware, adminMiddleware, optionalAuthMiddleware } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -16,7 +16,99 @@ const sendResponse = (res, statusCode, success, data = null, message = null, err
   res.status(statusCode).json(response);
 };
 
-// GET /api/products - Get all products with filtering and pagination
+// Helper: Create sample products if none exist
+const ensureSampleProducts = async () => {
+  try {
+    const snapshot = await db.collection('products').limit(1).get();
+    
+    if (snapshot.empty) {
+      console.log('📦 No products found, creating sample products...');
+      
+      const sampleProducts = [
+        {
+          name: "Midnight Oud",
+          description: "A rich and mysterious fragrance with notes of oud and rose. Perfect for evening wear.",
+          price: 2999,
+          category: "Oud",
+          brand: "Fragransia",
+          stock: 100,
+          images: ["/images/midnight-oud.jpg"],
+          isFeatured: true,
+          isActive: true,
+          sku: "FRG-MO-001",
+          weight: 100,
+          tags: ["oud", "rose", "evening", "luxury"],
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        },
+        {
+          name: "Rose Garden",
+          description: "A delicate and fresh fragrance inspired by a blooming rose garden. Light and romantic.",
+          price: 2499,
+          category: "Floral",
+          brand: "Fragransia",
+          stock: 150,
+          images: ["/images/rose-garden.jpg"],
+          isFeatured: true,
+          isActive: true,
+          sku: "FRG-RG-002",
+          weight: 100,
+          tags: ["rose", "floral", "fresh", "romantic"],
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        },
+        {
+          name: "Citrus Burst",
+          description: "A vibrant and energetic scent with zesty citrus notes. Perfect for daytime wear.",
+          price: 1899,
+          category: "Citrus",
+          brand: "Fragransia",
+          stock: 80,
+          images: ["/images/citrus-burst.jpg"],
+          isFeatured: false,
+          isActive: true,
+          sku: "FRG-CB-003",
+          weight: 100,
+          tags: ["citrus", "fresh", "energetic", "daytime"],
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        },
+        {
+          name: "Vanilla Dreams",
+          description: "A warm and comforting fragrance with vanilla and amber notes. Cozy and inviting.",
+          price: 2199,
+          category: "Oriental",
+          brand: "Fragransia",
+          stock: 120,
+          images: ["/images/vanilla-dreams.jpg"],
+          isFeatured: false,
+          isActive: true,
+          sku: "FRG-VD-004",
+          weight: 100,
+          tags: ["vanilla", "amber", "warm", "comfort"],
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        }
+      ];
+
+      const batch = db.batch();
+      sampleProducts.forEach(product => {
+        const docRef = db.collection('products').doc();
+        batch.set(docRef, product);
+      });
+      
+      await batch.commit();
+      console.log('✅ Sample products created successfully');
+    }
+  } catch (error) {
+    console.error('❌ Error ensuring sample products:', error);
+  }
+};
+
+// Initialize sample products on module load
+ensureSampleProducts();
+
+// GET /products - Get all products with filtering and pagination (PUBLIC)
 router.get('/', async (req, res) => {
   try {
     const {
@@ -32,6 +124,8 @@ router.get('/', async (req, res) => {
       isFeatured
     } = req.query;
 
+    console.log(`📦 Fetching products with filters:`, { category, search, minPrice, maxPrice, sortBy, sortOrder });
+
     let query = db.collection('products');
 
     // Apply filters
@@ -39,8 +133,11 @@ router.get('/', async (req, res) => {
       query = query.where('category', '==', category);
     }
 
+    // Only show active products for public endpoint
     if (isActive !== undefined) {
       query = query.where('isActive', '==', isActive === 'true');
+    } else {
+      query = query.where('isActive', '==', true); // Default to active products only
     }
 
     if (isFeatured !== undefined) {
@@ -53,6 +150,8 @@ router.get('/', async (req, res) => {
     // Get all products first
     const snapshot = await query.get();
     let products = [];
+
+    console.log(`📦 Found ${snapshot.size} products in database`);
 
     snapshot.forEach(doc => {
       const productData = doc.data();
@@ -77,6 +176,8 @@ router.get('/', async (req, res) => {
         updatedAt: productData.updatedAt?.toDate()
       });
     });
+
+    console.log(`📦 Filtered to ${products.length} products`);
 
     // Apply pagination
     const startIndex = (parseInt(page) - 1) * parseInt(limit);
@@ -114,18 +215,23 @@ router.get('/', async (req, res) => {
   }
 });
 
-// GET /api/products/:id - Get single product
+// GET /products/:id - Get single product (PUBLIC)
 router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
 
+    console.log(`📦 Fetching product with ID: ${id}`);
+
     const productDoc = await db.collection('products').doc(id).get();
 
     if (!productDoc.exists) {
+      console.log(`❌ Product not found: ${id}`);
       return sendResponse(res, 404, false, null, null, "Product not found");
     }
 
     const productData = productDoc.data();
+
+    console.log(`✅ Product found: ${productData.name}`);
 
     sendResponse(res, 200, true, {
       product: {
@@ -142,8 +248,8 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// POST /api/products - Create new product (Admin only)
-router.post('/', verifyAuth, [
+// POST /products - Create new product (Admin only)
+router.post('/', authMiddleware, adminMiddleware, [
   body('name').notEmpty().withMessage('Product name is required'),
   body('price').isFloat({ min: 0 }).withMessage('Valid price is required'),
   body('category').notEmpty().withMessage('Category is required'),
@@ -151,11 +257,6 @@ router.post('/', verifyAuth, [
   body('stock').isInt({ min: 0 }).withMessage('Valid stock quantity is required')
 ], async (req, res) => {
   try {
-    // Check if user is admin
-    if (req.user.role !== 'admin') {
-      return sendResponse(res, 403, false, null, null, "Admin access required");
-    }
-
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return sendResponse(res, 400, false, null, "Validation failed", "Invalid input data", errors.array());
@@ -183,7 +284,7 @@ router.post('/', verifyAuth, [
       category,
       description,
       stock: parseInt(stock),
-      brand: brand || '',
+      brand: brand || 'Fragransia',
       sku: sku || `SKU_${Date.now()}`,
       images: images || [],
       isActive: Boolean(isActive),
@@ -197,6 +298,8 @@ router.post('/', verifyAuth, [
     };
 
     const docRef = await db.collection('products').add(productData);
+
+    console.log(`✅ Product created: ${name} (ID: ${docRef.id})`);
 
     sendResponse(res, 201, true, {
       product: {
@@ -213,18 +316,13 @@ router.post('/', verifyAuth, [
   }
 });
 
-// PUT /api/products/:id - Update product (Admin only)
-router.put('/:id', verifyAuth, [
+// PUT /products/:id - Update product (Admin only)
+router.put('/:id', authMiddleware, adminMiddleware, [
   body('name').optional().notEmpty().withMessage('Product name cannot be empty'),
   body('price').optional().isFloat({ min: 0 }).withMessage('Valid price is required'),
   body('stock').optional().isInt({ min: 0 }).withMessage('Valid stock quantity is required')
 ], async (req, res) => {
   try {
-    // Check if user is admin
-    if (req.user.role !== 'admin') {
-      return sendResponse(res, 403, false, null, null, "Admin access required");
-    }
-
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return sendResponse(res, 400, false, null, "Validation failed", "Invalid input data", errors.array());
@@ -254,6 +352,8 @@ router.put('/:id', verifyAuth, [
     const updatedDoc = await productRef.get();
     const updatedData = updatedDoc.data();
 
+    console.log(`✅ Product updated: ${updatedData.name} (ID: ${id})`);
+
     sendResponse(res, 200, true, {
       product: {
         id: updatedDoc.id,
@@ -269,12 +369,16 @@ router.put('/:id', verifyAuth, [
   }
 });
 
-// DELETE /api/products/:id - Delete product (Admin only)
-router.delete('/:id', verifyAuth, async (req, res) => {
+// PATCH /products/:id - Partially update product (Admin only) - FIXED: Added missing PATCH endpoint
+router.patch('/:id', authMiddleware, adminMiddleware, [
+  body('name').optional().notEmpty().withMessage('Product name cannot be empty'),
+  body('price').optional().isFloat({ min: 0 }).withMessage('Valid price is required'),
+  body('stock').optional().isInt({ min: 0 }).withMessage('Valid stock quantity is required')
+], async (req, res) => {
   try {
-    // Check if user is admin
-    if (req.user.role !== 'admin') {
-      return sendResponse(res, 403, false, null, null, "Admin access required");
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return sendResponse(res, 400, false, null, "Validation failed", "Invalid input data", errors.array());
     }
 
     const { id } = req.params;
@@ -285,7 +389,60 @@ router.delete('/:id', verifyAuth, async (req, res) => {
       return sendResponse(res, 404, false, null, null, "Product not found");
     }
 
+    // Only update provided fields
+    const updateData = {
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedBy: req.user.uid
+    };
+
+    // Add only the fields that were provided in the request
+    Object.keys(req.body).forEach(key => {
+      if (req.body[key] !== undefined) {
+        updateData[key] = req.body[key];
+      }
+    });
+
+    // Convert numeric fields
+    if (updateData.price) updateData.price = parseFloat(updateData.price);
+    if (updateData.stock) updateData.stock = parseInt(updateData.stock);
+    if (updateData.weight) updateData.weight = parseFloat(updateData.weight);
+
+    await productRef.update(updateData);
+
+    const updatedDoc = await productRef.get();
+    const updatedData = updatedDoc.data();
+
+    console.log(`✅ Product patched: ${updatedData.name} (ID: ${id})`);
+
+    sendResponse(res, 200, true, {
+      product: {
+        id: updatedDoc.id,
+        ...updatedData,
+        createdAt: updatedData.createdAt?.toDate(),
+        updatedAt: updatedData.updatedAt?.toDate()
+      }
+    }, "Product updated successfully");
+
+  } catch (error) {
+    console.error('❌ Patch product error:', error);
+    sendResponse(res, 500, false, null, null, "Failed to update product", error.message);
+  }
+});
+
+// DELETE /products/:id - Delete product (Admin only)
+router.delete('/:id', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const productRef = db.collection('products').doc(id);
+    const productDoc = await productRef.get();
+
+    if (!productDoc.exists) {
+      return sendResponse(res, 404, false, null, null, "Product not found");
+    }
+
     await productRef.delete();
+
+    console.log(`✅ Product deleted: ID ${id}`);
 
     sendResponse(res, 200, true, null, "Product deleted successfully");
 
@@ -295,10 +452,10 @@ router.delete('/:id', verifyAuth, async (req, res) => {
   }
 });
 
-// GET /api/products/categories - Get all product categories
+// GET /products/categories - Get all product categories (PUBLIC)
 router.get('/categories', async (req, res) => {
   try {
-    const snapshot = await db.collection('products').get();
+    const snapshot = await db.collection('products').where('isActive', '==', true).get();
     const categories = new Set();
 
     snapshot.forEach(doc => {
@@ -318,10 +475,10 @@ router.get('/categories', async (req, res) => {
   }
 });
 
-// GET /api/products/brands - Get all product brands
+// GET /products/brands - Get all product brands (PUBLIC)
 router.get('/brands', async (req, res) => {
   try {
-    const snapshot = await db.collection('products').get();
+    const snapshot = await db.collection('products').where('isActive', '==', true).get();
     const brands = new Set();
 
     snapshot.forEach(doc => {
@@ -341,98 +498,7 @@ router.get('/brands', async (req, res) => {
   }
 });
 
-// GET /api/products/search - Search products
-router.get('/search', async (req, res) => {
-  try {
-    const {
-      q: searchTerm,
-      page = 1,
-      limit = 12,
-      category,
-      minPrice,
-      maxPrice,
-      sortBy = 'createdAt',
-      sortOrder = 'desc'
-    } = req.query;
-
-    if (!searchTerm) {
-      return sendResponse(res, 400, false, null, null, "Search term is required");
-    }
-
-    let query = db.collection('products').where('isActive', '==', true);
-
-    if (category && category !== 'all') {
-      query = query.where('category', '==', category);
-    }
-
-    const snapshot = await query.get();
-    let products = [];
-
-    snapshot.forEach(doc => {
-      const productData = doc.data();
-
-      // Apply search filter
-      const searchLower = searchTerm.toLowerCase();
-      const nameMatch = productData.name?.toLowerCase().includes(searchLower);
-      const descMatch = productData.description?.toLowerCase().includes(searchLower);
-      const brandMatch = productData.brand?.toLowerCase().includes(searchLower);
-      const tagsMatch = productData.tags?.some(tag => tag.toLowerCase().includes(searchLower));
-      
-      if (!nameMatch && !descMatch && !brandMatch && !tagsMatch) return;
-
-      // Apply price filters
-      if (minPrice && productData.price < parseFloat(minPrice)) return;
-      if (maxPrice && productData.price > parseFloat(maxPrice)) return;
-
-      products.push({
-        id: doc.id,
-        ...productData,
-        createdAt: productData.createdAt?.toDate(),
-        updatedAt: productData.updatedAt?.toDate()
-      });
-    });
-
-    // Sort products
-    products.sort((a, b) => {
-      if (sortBy === 'price') {
-        return sortOrder === 'asc' ? a.price - b.price : b.price - a.price;
-      } else if (sortBy === 'name') {
-        return sortOrder === 'asc' ? a.name.localeCompare(b.name) : b.name.localeCompare(a.name);
-      } else {
-        return sortOrder === 'asc' ? 
-          new Date(a.createdAt) - new Date(b.createdAt) : 
-          new Date(b.createdAt) - new Date(a.createdAt);
-      }
-    });
-
-    // Apply pagination
-    const startIndex = (parseInt(page) - 1) * parseInt(limit);
-    const endIndex = startIndex + parseInt(limit);
-    const paginatedProducts = products.slice(startIndex, endIndex);
-
-    const totalProducts = products.length;
-    const totalPages = Math.ceil(totalProducts / parseInt(limit));
-
-    sendResponse(res, 200, true, {
-      products: paginatedProducts,
-      pagination: {
-        currentPage: parseInt(page),
-        totalPages,
-        totalProducts,
-        hasNextPage: parseInt(page) < totalPages,
-        hasPrevPage: parseInt(page) > 1,
-        limit: parseInt(limit)
-      },
-      searchTerm
-    }, "Search results fetched successfully");
-
-  } catch (error) {
-    console.error('❌ Search products error:', error);
-    sendResponse(res, 500, false, null, null, "Failed to search products", error.message);
-  }
-});
-
-// GET /api/products/featured - Get featured products
+// GET /products/featured - Get featured products (PUBLIC)
 router.get('/featured', async (req, res) => {
   try {
     const { limit = 8 } = req.query;
@@ -462,113 +528,6 @@ router.get('/featured', async (req, res) => {
   } catch (error) {
     console.error('❌ Get featured products error:', error);
     sendResponse(res, 500, false, null, null, "Failed to fetch featured products", error.message);
-  }
-});
-
-// GET /api/products/:id/related - Get related products
-router.get('/:id/related', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { limit = 4 } = req.query;
-
-    // Get the current product to find related products
-    const productDoc = await db.collection('products').doc(id).get();
-    if (!productDoc.exists) {
-      return sendResponse(res, 404, false, null, null, "Product not found");
-    }
-
-    const product = productDoc.data();
-
-    // Find related products by category
-    const snapshot = await db.collection('products')
-      .where('isActive', '==', true)
-      .where('category', '==', product.category)
-      .orderBy('createdAt', 'desc')
-      .get();
-
-    const relatedProducts = [];
-    snapshot.forEach(doc => {
-      // Exclude the current product
-      if (doc.id !== id) {
-        const productData = doc.data();
-        relatedProducts.push({
-          id: doc.id,
-          ...productData,
-          createdAt: productData.createdAt?.toDate(),
-          updatedAt: productData.updatedAt?.toDate()
-        });
-      }
-    });
-
-    // Limit results
-    const limitedProducts = relatedProducts.slice(0, parseInt(limit));
-
-    sendResponse(res, 200, true, {
-      products: limitedProducts
-    }, "Related products fetched successfully");
-
-  } catch (error) {
-    console.error('❌ Get related products error:', error);
-    sendResponse(res, 500, false, null, null, "Failed to fetch related products", error.message);
-  }
-});
-
-// GET /api/products/:id/reviews - Get product reviews
-router.get('/:id/reviews', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { page = 1, limit = 10 } = req.query;
-
-    // Verify product exists
-    const productDoc = await db.collection('products').doc(id).get();
-    if (!productDoc.exists) {
-      return sendResponse(res, 404, false, null, null, "Product not found");
-    }
-
-    const snapshot = await db.collection('reviews')
-      .where('productId', '==', id)
-      .orderBy('createdAt', 'desc')
-      .get();
-
-    const reviews = [];
-    snapshot.forEach(doc => {
-      const reviewData = doc.data();
-      reviews.push({
-        id: doc.id,
-        ...reviewData,
-        createdAt: reviewData.createdAt?.toDate(),
-        updatedAt: reviewData.updatedAt?.toDate()
-      });
-    });
-
-    // Apply pagination
-    const startIndex = (parseInt(page) - 1) * parseInt(limit);
-    const endIndex = startIndex + parseInt(limit);
-    const paginatedReviews = reviews.slice(startIndex, endIndex);
-
-    const totalReviews = reviews.length;
-    const totalPages = Math.ceil(totalReviews / parseInt(limit));
-
-    // Calculate average rating
-    const averageRating = reviews.length > 0 ? 
-      reviews.reduce((sum, review) => sum + review.rating, 0) / reviews.length : 0;
-
-    sendResponse(res, 200, true, {
-      reviews: paginatedReviews,
-      pagination: {
-        currentPage: parseInt(page),
-        totalPages,
-        totalReviews,
-        hasNextPage: parseInt(page) < totalPages,
-        hasPrevPage: parseInt(page) > 1,
-        limit: parseInt(limit)
-      },
-      averageRating: Math.round(averageRating * 10) / 10
-    }, "Product reviews fetched successfully");
-
-  } catch (error) {
-    console.error('❌ Get product reviews error:', error);
-    sendResponse(res, 500, false, null, null, "Failed to fetch product reviews", error.message);
   }
 });
 

@@ -1,548 +1,452 @@
 const express = require('express');
 const { body, validationResult } = require('express-validator');
 const { db, admin } = require('../auth/firebaseConfig');
+const { authMiddleware, adminMiddleware } = require('../middleware/auth');
+
 const router = express.Router();
 
-// Apply coupon
-router.post('/apply', [
-  body('couponCode').notEmpty().withMessage('Coupon code is required'),
-  body('orderAmount').isFloat({ min: 0 }).withMessage('Order amount must be a positive number'),
-  body('userId').optional().isString()
+// Helper: Standard Response
+const sendResponse = (res, statusCode, success, data = null, message = null, error = null, details = null) => {
+  const response = { success };
+  if (message) response.message = message;
+  if (data) response.data = data;
+  if (error) response.error = error;
+  if (details) response.details = details;
+  
+  res.status(statusCode).json(response);
+};
+
+// Helper: Create sample coupons if none exist
+const ensureSampleCoupons = async () => {
+  try {
+    const snapshot = await db.collection('coupons').limit(1).get();
+    
+    if (snapshot.empty) {
+      console.log('🎫 No coupons found, creating sample coupons...');
+      
+      const sampleCoupons = [
+        {
+          code: 'WELCOME10',
+          type: 'percentage',
+          discount: 10,
+          description: 'Welcome discount for new users',
+          minOrderValue: 500,
+          maxDiscount: 100,
+          isActive: true,
+          isPublic: true,
+          usageLimit: 1000,
+          usedCount: 0,
+          expiryDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days from now
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        },
+        {
+          code: 'SAVE50',
+          type: 'fixed',
+          discount: 50,
+          description: 'Flat ₹50 off on orders above ₹300',
+          minOrderValue: 300,
+          maxDiscount: null,
+          isActive: true,
+          isPublic: true,
+          usageLimit: 500,
+          usedCount: 0,
+          expiryDate: new Date(Date.now() + 15 * 24 * 60 * 60 * 1000), // 15 days from now
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        },
+        {
+          code: 'FESTIVE20',
+          type: 'percentage',
+          discount: 20,
+          description: 'Festive season special - 20% off',
+          minOrderValue: 1000,
+          maxDiscount: 200,
+          isActive: true,
+          isPublic: true,
+          usageLimit: 200,
+          usedCount: 0,
+          expiryDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days from now
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        },
+        {
+          code: 'FIRSTORDER',
+          type: 'percentage',
+          discount: 15,
+          description: 'First order special discount',
+          minOrderValue: 800,
+          maxDiscount: 150,
+          isActive: true,
+          isPublic: false,
+          usageLimit: 100,
+          usedCount: 0,
+          userSpecific: true,
+          expiryDate: new Date(Date.now() + 60 * 24 * 60 * 60 * 1000), // 60 days from now
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        }
+      ];
+
+      const batch = db.batch();
+      sampleCoupons.forEach(coupon => {
+        const docRef = db.collection('coupons').doc(coupon.code);
+        batch.set(docRef, coupon);
+      });
+      
+      await batch.commit();
+      console.log('✅ Sample coupons created successfully');
+    }
+  } catch (error) {
+    console.error('❌ Error ensuring sample coupons:', error);
+  }
+};
+
+// Initialize sample coupons on module load
+ensureSampleCoupons();
+
+// POST /coupons/apply - Apply coupon to order
+router.post('/apply', authMiddleware, [
+  body('code').notEmpty().withMessage('Coupon code is required'),
+  body('orderTotal').isFloat({ min: 0 }).withMessage('Valid order total is required')
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({
-        error: 'Validation failed',
-        details: errors.array()
-      });
+      return sendResponse(res, 400, false, null, "Validation failed", "Invalid input data", errors.array());
     }
 
-    const { couponCode, orderAmount, userId } = req.body;
+    const { code, orderTotal } = req.body;
+    const userId = req.user.uid;
 
-    // Get coupon
-    const couponDoc = await db.collection('coupons').doc(couponCode.toUpperCase()).get();
+    console.log(`🎫 Applying coupon: ${code} for user: ${userId}, order total: ${orderTotal}`);
+
+    // Get coupon from Firebase
+    const couponDoc = await db.collection('coupons').doc(code.toUpperCase()).get();
 
     if (!couponDoc.exists) {
-      return res.status(404).json({
-        error: 'Invalid coupon code',
-        message: 'Coupon not found'
-      });
+      console.log(`❌ Coupon not found: ${code}`);
+      return sendResponse(res, 404, false, null, null, "Invalid coupon code");
     }
 
     const coupon = couponDoc.data();
 
     // Check if coupon is active
     if (!coupon.isActive) {
-      return res.status(400).json({
-        error: 'Coupon inactive',
-        message: 'This coupon is no longer active'
-      });
+      return sendResponse(res, 400, false, null, null, "Coupon is no longer active");
     }
 
     // Check expiry date
-    const now = new Date();
-    const expiryDate = coupon.expiryDate.toDate();
-    if (now > expiryDate) {
-      return res.status(400).json({
-        error: 'Coupon expired',
-        message: 'This coupon has expired'
-      });
+    if (coupon.expiryDate && coupon.expiryDate.toDate() < new Date()) {
+      return sendResponse(res, 400, false, null, null, "Coupon has expired");
     }
 
-    // Check start date
-    if (coupon.startDate) {
-      const startDate = coupon.startDate.toDate();
-      if (now < startDate) {
-        return res.status(400).json({
-          error: 'Coupon not yet active',
-          message: 'This coupon is not yet active'
-        });
-      }
-    }
-
-    // Check minimum order amount
-    if (coupon.minOrderAmount && orderAmount < coupon.minOrderAmount) {
-      return res.status(400).json({
-        error: 'Minimum order amount not met',
-        message: `Minimum order amount of ₹${coupon.minOrderAmount} required`
-      });
-    }
-
-    // Check usage limits
+    // Check usage limit
     if (coupon.usageLimit && coupon.usedCount >= coupon.usageLimit) {
-      return res.status(400).json({
-        error: 'Coupon usage limit exceeded',
-        message: 'This coupon has reached its usage limit'
-      });
+      return sendResponse(res, 400, false, null, null, "Coupon usage limit exceeded");
     }
 
-    // Check user-specific usage limit
-    if (userId && coupon.userUsageLimit) {
-      const userUsageQuery = await db.collection('couponUsage')
-        .where('couponCode', '==', couponCode.toUpperCase())
+    // Check minimum order value
+    if (orderTotal < coupon.minOrderValue) {
+      return sendResponse(res, 400, false, null, null, `Minimum order value of ₹${coupon.minOrderValue} required`);
+    }
+
+    // Check if user has already used this coupon (for user-specific coupons)
+    if (coupon.userSpecific) {
+      const userCouponUsage = await db.collection('coupon_usage')
         .where('userId', '==', userId)
+        .where('couponCode', '==', code.toUpperCase())
         .get();
-
-      if (userUsageQuery.size >= coupon.userUsageLimit) {
-        return res.status(400).json({
-          error: 'User usage limit exceeded',
-          message: 'You have already used this coupon the maximum number of times'
-        });
+      
+      if (!userCouponUsage.empty) {
+        return sendResponse(res, 400, false, null, null, "You have already used this coupon");
       }
-    }
-
-    // Check if coupon is applicable to specific categories
-    if (coupon.applicableCategories && coupon.applicableCategories.length > 0) {
-      // This would require product information to validate
-      // For now, we'll assume it's valid
     }
 
     // Calculate discount
-    let discountAmount = 0;
-    let freeItems = [];
-    
+    let discount = 0;
     if (coupon.type === 'percentage') {
-      discountAmount = (orderAmount * coupon.value) / 100;
+      discount = Math.round((orderTotal * coupon.discount) / 100);
       if (coupon.maxDiscount) {
-        discountAmount = Math.min(discountAmount, coupon.maxDiscount);
+        discount = Math.min(discount, coupon.maxDiscount);
       }
-    } else if (coupon.type === 'fixed') {
-      discountAmount = Math.min(coupon.value, orderAmount);
-    } else if (coupon.type === 'freeShipping') {
-      // Free shipping discount would be calculated based on shipping cost
-      discountAmount = 50; // Assuming base shipping cost
-    } else if (coupon.type === 'buy2get1') {
-      // Buy 2 Get 1 Free - requires cart items to calculate properly
-      // For now, we'll calculate based on average item price
-      // This should be enhanced to work with actual cart items
-      const { cartItems } = req.body;
-      if (cartItems && cartItems.length >= 2) {
-        // Sort items by price (ascending) to give cheapest item free
-        const sortedItems = cartItems.sort((a, b) => a.price - b.price);
-        const groupsOfThree = Math.floor(cartItems.length / 3);
-        const remainingItems = cartItems.length % 3;
-        
-        // Calculate free items (cheapest in each group of 3)
-        for (let i = 0; i < groupsOfThree; i++) {
-          const groupStart = i * 3;
-          const groupItems = sortedItems.slice(groupStart, groupStart + 3);
-          const cheapestItem = groupItems[0];
-          freeItems.push(cheapestItem);
-          discountAmount += cheapestItem.price * cheapestItem.quantity;
-        }
-        
-        // Handle remaining items (if 2 items left, apply buy 2 get 1)
-        if (remainingItems >= 2) {
-          const remainingStart = groupsOfThree * 3;
-          const remainingGroupItems = sortedItems.slice(remainingStart, remainingStart + 2);
-          const cheapestRemaining = remainingGroupItems[0];
-          freeItems.push(cheapestRemaining);
-          discountAmount += cheapestRemaining.price * cheapestRemaining.quantity;
-        }
-      }
-    } else if (coupon.type === 'buy3special') {
-      // Buy 3 at special price - requires cart items and special price
-      const { cartItems } = req.body;
-      const specialPrice = coupon.specialPrice || coupon.value; // Use specialPrice field or value
-      
-      if (cartItems && cartItems.length >= 3) {
-        const groupsOfThree = Math.floor(cartItems.length / 3);
-        let originalThreeItemsPrice = 0;
-        
-        for (let i = 0; i < groupsOfThree; i++) {
-          const groupStart = i * 3;
-          const groupItems = cartItems.slice(groupStart, groupStart + 3);
-          const groupTotal = groupItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-          originalThreeItemsPrice += groupTotal;
-        }
-        
-        const specialPriceTotal = groupsOfThree * specialPrice;
-        discountAmount = Math.max(0, originalThreeItemsPrice - specialPriceTotal);
-      }
+    } else {
+      discount = coupon.discount;
     }
 
-    discountAmount = Math.round(discountAmount * 100) / 100;
-    const newTotal = Math.max(0, orderAmount - discountAmount);
+    // Ensure discount doesn't exceed order total
+    discount = Math.min(discount, orderTotal);
 
-    res.json({
-      success: true,
+    console.log(`✅ Coupon applied: ${code}, discount: ₹${discount}`);
+
+    sendResponse(res, 200, true, {
       coupon: {
-        code: couponCode.toUpperCase(),
+        code: coupon.code,
         type: coupon.type,
-        value: coupon.value,
+        discount: coupon.discount,
+        appliedDiscount: discount,
         description: coupon.description,
-        minOrderAmount: coupon.minOrderAmount,
-        specialPrice: coupon.specialPrice
-      },
-      discount: {
-        amount: discountAmount,
-        percentage: orderAmount > 0 ? Math.round((discountAmount / orderAmount) * 100 * 100) / 100 : 0,
-        freeItems: freeItems || []
-      },
-      orderSummary: {
-        originalAmount: orderAmount,
-        discountAmount,
-        finalAmount: newTotal
-      }
-    });
-
-  } catch (error) {
-    console.error('Apply coupon error:', error);
-    res.status(500).json({
-      error: 'Failed to apply coupon',
-      message: error.message
-    });
-  }
-});
-
-// Validate coupon (without applying)
-router.post('/validate', [
-  body('couponCode').notEmpty().withMessage('Coupon code is required'),
-  body('orderAmount').optional().isFloat({ min: 0 }),
-  body('userId').optional().isString()
-], async (req, res) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({
-        error: 'Validation failed',
-        details: errors.array()
-      });
-    }
-
-    const { couponCode, orderAmount, userId } = req.body;
-
-    // Get coupon
-    const couponDoc = await db.collection('coupons').doc(couponCode.toUpperCase()).get();
-
-    if (!couponDoc.exists) {
-      return res.status(404).json({
-        error: 'Invalid coupon code',
-        valid: false
-      });
-    }
-
-    const coupon = couponDoc.data();
-    const validationResult = {
-      valid: true,
-      coupon: {
-        code: couponCode.toUpperCase(),
-        type: coupon.type,
-        value: coupon.value,
-        description: coupon.description,
-        minOrderAmount: coupon.minOrderAmount,
+        minOrderValue: coupon.minOrderValue,
         maxDiscount: coupon.maxDiscount
-      },
-      issues: []
-    };
-
-    // Check various conditions
-    if (!coupon.isActive) {
-      validationResult.valid = false;
-      validationResult.issues.push('Coupon is not active');
-    }
-
-    const now = new Date();
-    const expiryDate = coupon.expiryDate.toDate();
-    if (now > expiryDate) {
-      validationResult.valid = false;
-      validationResult.issues.push('Coupon has expired');
-    }
-
-    if (coupon.startDate) {
-      const startDate = coupon.startDate.toDate();
-      if (now < startDate) {
-        validationResult.valid = false;
-        validationResult.issues.push('Coupon is not yet active');
       }
-    }
-
-    if (orderAmount && coupon.minOrderAmount && orderAmount < coupon.minOrderAmount) {
-      validationResult.valid = false;
-      validationResult.issues.push(`Minimum order amount of ₹${coupon.minOrderAmount} required`);
-    }
-
-    if (coupon.usageLimit && coupon.usedCount >= coupon.usageLimit) {
-      validationResult.valid = false;
-      validationResult.issues.push('Coupon usage limit exceeded');
-    }
-
-    res.json({
-      success: true,
-      ...validationResult
-    });
+    }, "Coupon applied successfully");
 
   } catch (error) {
-    console.error('Validate coupon error:', error);
-    res.status(500).json({
-      error: 'Failed to validate coupon',
-      message: error.message
-    });
+    console.error('❌ Apply coupon error:', error);
+    sendResponse(res, 500, false, null, null, "Failed to apply coupon", error.message);
   }
 });
 
-// Get available coupons for user
-router.get('/available', async (req, res) => {
-  try {
-    const { userId, orderAmount } = req.query;
-
-    let query = db.collection('coupons')
-      .where('isActive', '==', true)
-      .where('expiryDate', '>', new Date())
-      .orderBy('expiryDate')
-      .orderBy('createdAt', 'desc');
-
-    const snapshot = await query.get();
-    const availableCoupons = [];
-
-    for (const doc of snapshot.docs) {
-      const coupon = doc.data();
-      let isAvailable = true;
-
-      // Check start date
-      if (coupon.startDate && new Date() < coupon.startDate.toDate()) {
-        isAvailable = false;
-      }
-
-      // Check usage limits
-      if (coupon.usageLimit && coupon.usedCount >= coupon.usageLimit) {
-        isAvailable = false;
-      }
-
-      // Check minimum order amount
-      if (orderAmount && coupon.minOrderAmount && parseFloat(orderAmount) < coupon.minOrderAmount) {
-        isAvailable = false;
-      }
-
-      // Check user-specific usage limit
-      if (userId && coupon.userUsageLimit) {
-        const userUsageQuery = await db.collection('couponUsage')
-          .where('couponCode', '==', doc.id)
-          .where('userId', '==', userId)
-          .get();
-
-        if (userUsageQuery.size >= coupon.userUsageLimit) {
-          isAvailable = false;
-        }
-      }
-
-      if (isAvailable) {
-        availableCoupons.push({
-          code: doc.id,
-          ...coupon,
-          expiryDate: coupon.expiryDate.toDate(),
-          startDate: coupon.startDate?.toDate(),
-          createdAt: coupon.createdAt?.toDate()
-        });
-      }
-    }
-
-    res.json({
-      success: true,
-      coupons: availableCoupons,
-      count: availableCoupons.length
-    });
-
-  } catch (error) {
-    console.error('Get available coupons error:', error);
-    res.status(500).json({
-      error: 'Failed to fetch available coupons',
-      message: error.message
-    });
-  }
-});
-
-// Get public coupons (alias for available - for frontend compatibility)
+// GET /coupons/public - Get public coupons (no auth required)
 router.get('/public', async (req, res) => {
   try {
-    const { userId, orderAmount } = req.query;
+    console.log('🎫 Fetching public coupons...');
 
-    let query = db.collection('coupons')
+    const snapshot = await db.collection('coupons')
       .where('isActive', '==', true)
-      .where('expiryDate', '>', new Date())
-      .orderBy('expiryDate')
-      .orderBy('createdAt', 'desc');
+      .where('isPublic', '==', true)
+      .orderBy('createdAt', 'desc')
+      .get();
 
-    const snapshot = await query.get();
-    const availableCoupons = [];
+    const coupons = [];
+    const now = new Date();
 
-    for (const doc of snapshot.docs) {
-      const coupon = doc.data();
-      let isAvailable = true;
-
-      // Check start date
-      if (coupon.startDate && new Date() < coupon.startDate.toDate()) {
-        isAvailable = false;
-      }
-
-      // Check usage limits
-      if (coupon.usageLimit && coupon.usedCount >= coupon.usageLimit) {
-        isAvailable = false;
-      }
-
-      // Check minimum order amount
-      if (orderAmount && coupon.minOrderAmount && parseFloat(orderAmount) < coupon.minOrderAmount) {
-        isAvailable = false;
-      }
-
-      // Check user-specific usage limit
-      if (userId && coupon.userUsageLimit) {
-        const userUsageQuery = await db.collection('couponUsage')
-          .where('couponCode', '==', doc.id)
-          .where('userId', '==', userId)
-          .get();
-
-        if (userUsageQuery.size >= coupon.userUsageLimit) {
-          isAvailable = false;
-        }
-      }
-
-      if (isAvailable) {
-        availableCoupons.push({
-          code: doc.id,
-          ...coupon,
-          expiryDate: coupon.expiryDate.toDate(),
-          startDate: coupon.startDate?.toDate(),
-          createdAt: coupon.createdAt?.toDate()
+    snapshot.forEach(doc => {
+      const couponData = doc.data();
+      
+      // Filter out expired coupons
+      if (!couponData.expiryDate || couponData.expiryDate.toDate() > now) {
+        coupons.push({
+          code: couponData.code,
+          type: couponData.type,
+          discount: couponData.discount,
+          description: couponData.description,
+          minOrderValue: couponData.minOrderValue,
+          maxDiscount: couponData.maxDiscount,
+          expiryDate: couponData.expiryDate?.toDate(),
+          usageLimit: couponData.usageLimit,
+          usedCount: couponData.usedCount
         });
       }
-    }
-
-    res.json({
-      success: true,
-      coupons: availableCoupons,
-      count: availableCoupons.length
     });
+
+    console.log(`✅ Found ${coupons.length} public coupons`);
+
+    sendResponse(res, 200, true, { coupons }, "Public coupons retrieved successfully");
 
   } catch (error) {
-    console.error('Get public coupons error:', error);
-    res.status(500).json({
-      error: 'Failed to fetch public coupons',
-      message: error.message
-    });
+    console.error('❌ Get public coupons error:', error);
+    sendResponse(res, 500, false, null, null, "Failed to retrieve public coupons", error.message);
   }
 });
 
-// Record coupon usage (called after successful order)
-router.post('/use', [
-  body('couponCode').notEmpty().withMessage('Coupon code is required'),
-  body('userId').notEmpty().withMessage('User ID is required'),
+// GET /coupons/available - Get available coupons for user
+router.get('/available', authMiddleware, async (req, res) => {
+  try {
+    const { orderTotal } = req.query;
+    const userId = req.user.uid;
+
+    console.log(`🎫 Fetching available coupons for user: ${userId}, order total: ${orderTotal}`);
+
+    const snapshot = await db.collection('coupons')
+      .where('isActive', '==', true)
+      .orderBy('createdAt', 'desc')
+      .get();
+
+    const availableCoupons = [];
+    const now = new Date();
+
+    for (const doc of snapshot.docs) {
+      const couponData = doc.data();
+      
+      // Filter out expired coupons
+      if (couponData.expiryDate && couponData.expiryDate.toDate() <= now) {
+        continue;
+      }
+
+      // Filter by order total if provided
+      if (orderTotal && parseFloat(orderTotal) < couponData.minOrderValue) {
+        continue;
+      }
+
+      // Check usage limit
+      if (couponData.usageLimit && couponData.usedCount >= couponData.usageLimit) {
+        continue;
+      }
+
+      // Check if user has already used this coupon (for user-specific coupons)
+      if (couponData.userSpecific) {
+        const userCouponUsage = await db.collection('coupon_usage')
+          .where('userId', '==', userId)
+          .where('couponCode', '==', couponData.code)
+          .get();
+        
+        if (!userCouponUsage.empty) {
+          continue;
+        }
+      }
+
+      availableCoupons.push({
+        code: couponData.code,
+        type: couponData.type,
+        discount: couponData.discount,
+        description: couponData.description,
+        minOrderValue: couponData.minOrderValue,
+        maxDiscount: couponData.maxDiscount,
+        expiryDate: couponData.expiryDate?.toDate(),
+        userSpecific: couponData.userSpecific || false
+      });
+    }
+
+    console.log(`✅ Found ${availableCoupons.length} available coupons for user`);
+
+    sendResponse(res, 200, true, { coupons: availableCoupons }, "Available coupons retrieved successfully");
+
+  } catch (error) {
+    console.error('❌ Get available coupons error:', error);
+    sendResponse(res, 500, false, null, null, "Failed to retrieve available coupons", error.message);
+  }
+});
+
+// POST /coupons/use - Mark coupon as used (called after successful order)
+router.post('/use', authMiddleware, [
+  body('code').notEmpty().withMessage('Coupon code is required'),
   body('orderId').notEmpty().withMessage('Order ID is required'),
-  body('discountAmount').isFloat({ min: 0 }).withMessage('Discount amount is required')
+  body('discountAmount').isFloat({ min: 0 }).withMessage('Valid discount amount is required')
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({
-        error: 'Validation failed',
-        details: errors.array()
-      });
+      return sendResponse(res, 400, false, null, "Validation failed", "Invalid input data", errors.array());
     }
 
-    const { couponCode, userId, orderId, discountAmount } = req.body;
+    const { code, orderId, discountAmount } = req.body;
+    const userId = req.user.uid;
+
+    console.log(`🎫 Marking coupon as used: ${code} for order: ${orderId}`);
+
+    // Update coupon usage count
+    const couponRef = db.collection('coupons').doc(code.toUpperCase());
+    await couponRef.update({
+      usedCount: admin.firestore.FieldValue.increment(1),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    });
 
     // Record coupon usage
-    const usageData = {
-      couponCode: couponCode.toUpperCase(),
+    await db.collection('coupon_usage').add({
       userId,
+      couponCode: code.toUpperCase(),
       orderId,
       discountAmount,
       usedAt: admin.firestore.FieldValue.serverTimestamp()
-    };
-
-    await db.collection('couponUsage').add(usageData);
-
-    // Increment coupon used count
-    await db.collection('coupons').doc(couponCode.toUpperCase()).update({
-      usedCount: admin.firestore.FieldValue.increment(1),
-      lastUsedAt: admin.firestore.FieldValue.serverTimestamp()
     });
 
-    res.json({
-      success: true,
-      message: 'Coupon usage recorded successfully'
-    });
+    console.log(`✅ Coupon usage recorded: ${code}`);
+
+    sendResponse(res, 200, true, null, "Coupon usage recorded successfully");
 
   } catch (error) {
-    console.error('Record coupon usage error:', error);
-    res.status(500).json({
-      error: 'Failed to record coupon usage',
-      message: error.message
-    });
+    console.error('❌ Record coupon usage error:', error);
+    sendResponse(res, 500, false, null, null, "Failed to record coupon usage", error.message);
   }
 });
 
-// Get coupon usage statistics (admin only)
-router.get('/stats/:couponCode', async (req, res) => {
+// Admin routes for coupon management
+
+// GET /coupons/admin/all - Get all coupons (Admin only)
+router.get('/admin/all', authMiddleware, adminMiddleware, async (req, res) => {
   try {
-    const { couponCode } = req.params;
+    const snapshot = await db.collection('coupons').orderBy('createdAt', 'desc').get();
 
-    // Get coupon details
-    const couponDoc = await db.collection('coupons').doc(couponCode.toUpperCase()).get();
-    
-    if (!couponDoc.exists) {
-      return res.status(404).json({
-        error: 'Coupon not found'
+    const coupons = [];
+    snapshot.forEach(doc => {
+      const couponData = doc.data();
+      coupons.push({
+        id: doc.id,
+        ...couponData,
+        createdAt: couponData.createdAt?.toDate(),
+        updatedAt: couponData.updatedAt?.toDate(),
+        expiryDate: couponData.expiryDate?.toDate()
       });
-    }
-
-    const coupon = couponDoc.data();
-
-    // Get usage statistics
-    const usageQuery = await db.collection('couponUsage')
-      .where('couponCode', '==', couponCode.toUpperCase())
-      .get();
-
-    let totalDiscount = 0;
-    const userUsage = {};
-    const dailyUsage = {};
-
-    usageQuery.forEach(doc => {
-      const usage = doc.data();
-      totalDiscount += usage.discountAmount;
-
-      // Count per user
-      userUsage[usage.userId] = (userUsage[usage.userId] || 0) + 1;
-
-      // Count per day
-      const date = usage.usedAt.toDate().toDateString();
-      dailyUsage[date] = (dailyUsage[date] || 0) + 1;
     });
 
-    const stats = {
-      coupon: {
-        code: couponCode.toUpperCase(),
-        ...coupon,
-        expiryDate: coupon.expiryDate.toDate(),
-        startDate: coupon.startDate?.toDate(),
-        createdAt: coupon.createdAt?.toDate()
-      },
-      usage: {
-        totalUsage: usageQuery.size,
-        totalDiscount,
-        uniqueUsers: Object.keys(userUsage).length,
-        averageDiscount: usageQuery.size > 0 ? totalDiscount / usageQuery.size : 0
-      },
-      trends: {
-        dailyUsage: Object.entries(dailyUsage).map(([date, count]) => ({
-          date,
-          count
-        }))
-      }
-    };
-
-    res.json({
-      success: true,
-      stats
-    });
+    sendResponse(res, 200, true, { coupons }, "All coupons retrieved successfully");
 
   } catch (error) {
-    console.error('Get coupon stats error:', error);
-    res.status(500).json({
-      error: 'Failed to fetch coupon statistics',
-      message: error.message
-    });
+    console.error('❌ Get all coupons error:', error);
+    sendResponse(res, 500, false, null, null, "Failed to retrieve coupons", error.message);
+  }
+});
+
+// POST /coupons/admin/create - Create new coupon (Admin only)
+router.post('/admin/create', authMiddleware, adminMiddleware, [
+  body('code').notEmpty().withMessage('Coupon code is required'),
+  body('type').isIn(['percentage', 'fixed']).withMessage('Valid coupon type is required'),
+  body('discount').isFloat({ min: 0 }).withMessage('Valid discount value is required'),
+  body('description').notEmpty().withMessage('Description is required'),
+  body('minOrderValue').isFloat({ min: 0 }).withMessage('Valid minimum order value is required')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return sendResponse(res, 400, false, null, "Validation failed", "Invalid input data", errors.array());
+    }
+
+    const {
+      code,
+      type,
+      discount,
+      description,
+      minOrderValue,
+      maxDiscount,
+      isPublic = true,
+      userSpecific = false,
+      usageLimit,
+      expiryDate
+    } = req.body;
+
+    const couponCode = code.toUpperCase();
+
+    // Check if coupon already exists
+    const existingCoupon = await db.collection('coupons').doc(couponCode).get();
+    if (existingCoupon.exists) {
+      return sendResponse(res, 400, false, null, null, "Coupon code already exists");
+    }
+
+    const couponData = {
+      code: couponCode,
+      type,
+      discount: parseFloat(discount),
+      description,
+      minOrderValue: parseFloat(minOrderValue),
+      maxDiscount: maxDiscount ? parseFloat(maxDiscount) : null,
+      isActive: true,
+      isPublic: Boolean(isPublic),
+      userSpecific: Boolean(userSpecific),
+      usageLimit: usageLimit ? parseInt(usageLimit) : null,
+      usedCount: 0,
+      expiryDate: expiryDate ? new Date(expiryDate) : null,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      createdBy: req.user.uid
+    };
+
+    await db.collection('coupons').doc(couponCode).set(couponData);
+
+    console.log(`✅ Coupon created: ${couponCode}`);
+
+    sendResponse(res, 201, true, {
+      coupon: {
+        id: couponCode,
+        ...couponData,
+        createdAt: new Date(),
+        updatedAt: new Date()
+      }
+    }, "Coupon created successfully");
+
+  } catch (error) {
+    console.error('❌ Create coupon error:', error);
+    sendResponse(res, 500, false, null, null, "Failed to create coupon", error.message);
   }
 });
 

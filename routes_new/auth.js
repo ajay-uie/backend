@@ -71,7 +71,7 @@ const createUserProfile = async (uid, userData) => {
   }
 };
 
-// POST /auth/register - Manual registration with email/password
+// POST /register - Manual registration with email/password
 router.post('/register', [
   body('email').isEmail().withMessage('Valid email is required'),
   body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),
@@ -142,7 +142,7 @@ router.post('/register', [
   }
 });
 
-// POST /auth/login - Manual login with email/password
+// POST /login - Manual login with email/password
 router.post('/login', [
   body('email').isEmail().withMessage('Valid email is required'),
   body('password').notEmpty().withMessage('Password is required')
@@ -222,8 +222,8 @@ router.post('/login', [
   }
 });
 
-// POST /auth/google - Google OAuth login/register
-router.post('/google', [
+// POST /google-login - Google OAuth login/register (Fixed endpoint name)
+router.post('/google-login', [
   body('idToken').notEmpty().withMessage('Google ID token is required')
 ], async (req, res) => {
   try {
@@ -304,7 +304,100 @@ router.post('/google', [
   }
 });
 
-// POST /auth/logout - Logout user
+// POST /login-token - Login with token (Fixed endpoint)
+router.post('/login-token', async (req, res) => {
+  try {
+    const { token } = req.body;
+
+    if (!token) {
+      return sendResponse(res, 400, false, null, null, "Token is required");
+    }
+
+    // Verify JWT token
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
+
+    // Get user profile from Firestore
+    const userDoc = await db.collection('users').doc(decoded.uid).get();
+    
+    if (!userDoc.exists) {
+      return sendResponse(res, 404, false, null, null, "User profile not found");
+    }
+
+    const userProfile = userDoc.data();
+
+    // Check if user is active
+    if (!userProfile.isActive) {
+      return sendResponse(res, 403, false, null, null, "Account is deactivated");
+    }
+
+    sendResponse(res, 200, true, {
+      user: {
+        uid: userProfile.uid,
+        email: userProfile.email,
+        displayName: userProfile.displayName,
+        photoURL: userProfile.photoURL,
+        emailVerified: userProfile.emailVerified,
+        role: userProfile.role
+      },
+      token
+    }, "Token login successful");
+
+  } catch (error) {
+    console.error('❌ Token login error:', error);
+    
+    if (error.name === 'JsonWebTokenError') {
+      return sendResponse(res, 401, false, null, null, "Invalid token");
+    }
+    
+    sendResponse(res, 500, false, null, null, "Token login failed", error.message);
+  }
+});
+
+// POST /verify - Verify user token (Fixed endpoint)
+router.post('/verify', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return sendResponse(res, 401, false, null, null, "No token provided");
+    }
+
+    const token = authHeader.substring(7);
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
+
+    // Get user profile from Firestore
+    const userDoc = await db.collection('users').doc(decoded.uid).get();
+    
+    if (!userDoc.exists) {
+      return sendResponse(res, 404, false, null, null, "User profile not found");
+    }
+
+    const userProfile = userDoc.data();
+
+    sendResponse(res, 200, true, {
+      user: {
+        uid: userProfile.uid,
+        email: userProfile.email,
+        displayName: userProfile.displayName,
+        photoURL: userProfile.photoURL,
+        emailVerified: userProfile.emailVerified,
+        role: userProfile.role,
+        profile: userProfile.profile
+      }
+    }, "Token verified successfully");
+
+  } catch (error) {
+    console.error('❌ Token verification error:', error);
+    
+    if (error.name === 'JsonWebTokenError') {
+      return sendResponse(res, 401, false, null, null, "Invalid token");
+    }
+    
+    sendResponse(res, 500, false, null, null, "Token verification failed", error.message);
+  }
+});
+
+// POST /logout - Logout user
 router.post('/logout', async (req, res) => {
   try {
     const authHeader = req.headers.authorization;
@@ -335,7 +428,7 @@ router.post('/logout', async (req, res) => {
   }
 });
 
-// GET /auth/me - Get current user profile
+// GET /me - Get current user profile
 router.get('/me', async (req, res) => {
   try {
     const authHeader = req.headers.authorization;
@@ -379,7 +472,7 @@ router.get('/me', async (req, res) => {
   }
 });
 
-// PUT /auth/profile - Update user profile
+// PUT /profile - Update user profile
 router.put('/profile', [
   body('firstName').optional().notEmpty().withMessage('First name cannot be empty'),
   body('lastName').optional().notEmpty().withMessage('Last name cannot be empty'),
@@ -438,7 +531,7 @@ router.put('/profile', [
   }
 });
 
-// POST /auth/forgot-password - Send password reset email
+// POST /forgot-password - Send password reset email
 router.post('/forgot-password', [
   body('email').isEmail().withMessage('Valid email is required')
 ], async (req, res) => {
@@ -471,7 +564,7 @@ router.post('/forgot-password', [
   }
 });
 
-// POST /auth/verify-email - Verify email address
+// POST /verify-email - Verify email address
 router.post('/verify-email', [
   body('token').notEmpty().withMessage('Verification token is required')
 ], async (req, res) => {

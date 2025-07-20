@@ -177,68 +177,51 @@ app.get("/", (req, res) => {
 
 // ========== AUTHENTICATION ROUTES ==========
 // New routes (primary)
+app.use("/api/auth", authLimiter, require("./routes_new/auth"));
 app.use("/auth", authLimiter, require("./routes_new/auth"));
+app.use("/api/admin/auth", authLimiter, require("./routes_new/adminAuth"));
 app.use("/admin/auth", authLimiter, require("./routes_new/adminAuth"));
 
 // ========== ADMIN ROUTES - FIXED: Using /api/admin prefix for frontend compatibility ==========
+app.use("/api/admin", strictLimiter, require("./routes_new/admin"));
 app.use("/admin", strictLimiter, require("./routes_new/admin"));
-app.use("/admin/products", strictLimiter, require("./routes_new/admin_products"));
-app.use("/admin/categories", strictLimiter, require("./routes_new/admin_categories"));
-app.use("/admin/orders", strictLimiter, require("./routes_new/admin_orders"));
-app.use("/admin/users", strictLimiter, require("./routes_new/users"));
-app.use("/admin/coupons", strictLimiter, require("./routes_new/coupons"));
-app.use("/admin/analytics", strictLimiter, require("./routes_new/admin_analytics"));
-app.use("/admin/settings", strictLimiter, require("./routes_new/admin_settings"));
-app.use("/admin/signals", strictLimiter, require("./routes_new/admin_signals"));
+app.use("/api/admin/products", strictLimiter, require("./routes_new/admin_products"));
+app.use("/api/admin/categories", strictLimiter, require("./routes_new/admin_categories"));
+app.use("/api/admin/orders", strictLimiter, require("./routes_new/admin_orders"));
+app.use("/api/admin/users", strictLimiter, require("./routes_new/users"));
+app.use("/api/admin/coupons", strictLimiter, require("./routes_new/coupons"));
+app.use("/api/admin/analytics", strictLimiter, require("./routes_new/admin_analytics"));
+app.use("/api/admin/settings", strictLimiter, require("./routes_new/admin_settings"));
+app.use("/api/admin/signals", strictLimiter, require("./routes_new/admin_signals"));
 
 // ========== PUBLIC API ROUTES - FIXED ORDER AND REGISTRATION ==========
 // Products routes - FIXED: Using the corrected products route
-app.use('/products', apiLimiter, require('./routes_new/products'));
+app.use("/api/products", apiLimiter, require("./routes_new/products"));
+app.use("/products", apiLimiter, require("./routes_new/products"));
 
 // Authentication routes
-app.use('/auth', authLimiter, require('./routes_new/auth'));
+app.use('/api/auth', authLimiter, require('./routes_new/auth'));
 
 // Real-time routes
-app.use('/realtime', apiLimiter, require('./routes_new/realtime'));
+app.use("/api/realtime", apiLimiter, require("./routes_new/realtime"));
+app.use("/realtime", apiLimiter, require("./routes_new/realtime"));
 
 // Other API routes
+app.use("/api/orders", apiLimiter, require("./routes_new/orders"));
 app.use("/orders", apiLimiter, require("./routes_new/orders"));
+app.use("/api/cart", apiLimiter, require("./routes_new/cart"));
 app.use("/cart", apiLimiter, require("./routes_new/cart"));
+app.use("/api/users", apiLimiter, require("./routes_new/users"));
 app.use("/users", apiLimiter, require("./routes_new/users"));
+app.use("/api/wishlist", apiLimiter, require("./routes_new/wishlist"));
 app.use("/wishlist", apiLimiter, require("./routes_new/wishlist"));
+app.use("/api/coupons", apiLimiter, require("./routes_new/coupons"));
 app.use("/coupons", apiLimiter, require("./routes_new/coupons"));
+app.use("/api/reviews", apiLimiter, require("./routes_new/reviews"));
 app.use("/reviews", apiLimiter, require("./routes_new/reviews"));
+app.use("/api/payments", strictLimiter, require("./routes_new/payments"));
 app.use("/payments", strictLimiter, require("./routes_new/payments"));
 
-// ========== LEGACY ROUTES (BACKUP) ==========
-// Original routes (legacy support with different prefixes)
-try {
-  app.use("/auth-legacy", authLimiter, require("./routes/auth"));
-  app.use("/admin/auth-legacy", authLimiter, require("./routes/adminAuth"));
-  app.use('/products-legacy', apiLimiter, require('./routes/products'));
-  app.use("/orders-legacy", apiLimiter, require("./routes/orders"));
-  app.use("/cart-legacy", apiLimiter, require("./routes/cart"));
-  app.use("/users-legacy", apiLimiter, require("./routes/users"));
-  app.use("/wishlist-legacy", apiLimiter, require("./routes/wishlist"));
-  app.use("/coupons-legacy", apiLimiter, require("./routes/coupons"));
-} catch (error) {
-  console.warn("⚠️ Some legacy routes not available:", error.message);
-}
-
-// ========== EXTRA ROUTES (NEW FEATURES) ==========
-// Realtime routes (original)
-try {
-  app.use("/realtime", apiLimiter, require("./routes/realtime"));
-} catch (error) {
-  console.warn("⚠️ Realtime routes not available:", error.message);
-}
-
-// Webhook routes (original)
-try {
-  app.use("/webhooks", require("./routes/webhooks"));
-} catch (error) {
-  console.warn("⚠️ Webhook routes not available:", error.message);
-}
 
 // ✅ API Documentation route (development only)
 if (NODE_ENV === 'development') {

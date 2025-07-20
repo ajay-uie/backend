@@ -539,3 +539,234 @@ router.get('/:id/track', verifyAuth, async (req, res) => {
 
 module.exports = router;
 
+
+
+// PUT /api/orders/:id/cancel - Cancel order
+router.put('/:id/cancel', verifyAuth, [
+  body('reason').optional().isString().withMessage('Cancellation reason must be a string')
+], async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { reason } = req.body;
+    const userId = req.user.uid;
+
+    const orderRef = db.collection('orders').doc(id);
+    const orderDoc = await orderRef.get();
+
+    if (!orderDoc.exists) {
+      return sendResponse(res, 404, false, null, null, "Order not found");
+    }
+
+    const orderData = orderDoc.data();
+
+    // Check if user owns this order or is admin
+    if (orderData.userId !== userId && req.user.role !== 'admin') {
+      return sendResponse(res, 403, false, null, null, "Access denied");
+    }
+
+    // Check if order can be cancelled
+    const cancellableStatuses = ['pending', 'confirmed', 'processing'];
+    if (!cancellableStatuses.includes(orderData.status)) {
+      return sendResponse(res, 400, false, null, null, "Order cannot be cancelled at this stage");
+    }
+
+    // Update order status
+    await orderRef.update({
+      status: 'cancelled',
+      paymentStatus: orderData.paymentStatus === 'paid' ? 'refund_pending' : 'cancelled',
+      cancellationReason: reason || 'Cancelled by customer',
+      cancelledAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      statusHistory: admin.firestore.FieldValue.arrayUnion({
+        status: 'cancelled',
+        timestamp: new Date(),
+        note: reason || 'Order cancelled by customer',
+        updatedBy: userId
+      })
+    });
+
+    // Restore product stock
+    const batch = db.batch();
+    orderData.items.forEach(item => {
+      const productRef = db.collection('products').doc(item.productId);
+      batch.update(productRef, {
+        stock: admin.firestore.FieldValue.increment(item.quantity)
+      });
+    });
+    await batch.commit();
+
+    const updatedDoc = await orderRef.get();
+    const updatedData = updatedDoc.data();
+
+    sendResponse(res, 200, true, {
+      order: {
+        id: updatedDoc.id,
+        ...updatedData,
+        createdAt: updatedData.createdAt?.toDate(),
+        updatedAt: updatedData.updatedAt?.toDate(),
+        cancelledAt: updatedData.cancelledAt?.toDate()
+      }
+    }, "Order cancelled successfully");
+
+  } catch (error) {
+    console.error('❌ Cancel order error:', error);
+    sendResponse(res, 500, false, null, null, "Failed to cancel order", error.message);
+  }
+});
+
+// GET /api/orders/:id/track - Track order
+router.get('/:id/track', verifyAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.uid;
+
+    const orderDoc = await db.collection('orders').doc(id).get();
+
+    if (!orderDoc.exists) {
+      return sendResponse(res, 404, false, null, null, "Order not found");
+    }
+
+    const orderData = orderDoc.data();
+
+    // Check if user owns this order or is admin
+    if (orderData.userId !== userId && req.user.role !== 'admin') {
+      return sendResponse(res, 403, false, null, null, "Access denied");
+    }
+
+    // Mock tracking information
+    const trackingInfo = {
+      orderId: orderData.orderId,
+      status: orderData.status,
+      trackingNumber: orderData.trackingNumber || null,
+      estimatedDelivery: orderData.estimatedDelivery?.toDate(),
+      currentLocation: orderData.currentLocation || 'Processing Center',
+      statusHistory: orderData.statusHistory || [],
+      timeline: [
+        {
+          status: 'pending',
+          title: 'Order Placed',
+          description: 'Your order has been placed successfully',
+          timestamp: orderData.createdAt?.toDate(),
+          completed: true
+        },
+        {
+          status: 'confirmed',
+          title: 'Order Confirmed',
+          description: 'Your order has been confirmed and is being prepared',
+          timestamp: orderData.statusHistory?.find(h => h.status === 'confirmed')?.timestamp,
+          completed: ['confirmed', 'processing', 'shipped', 'delivered'].includes(orderData.status)
+        },
+        {
+          status: 'processing',
+          title: 'Processing',
+          description: 'Your order is being processed and packed',
+          timestamp: orderData.statusHistory?.find(h => h.status === 'processing')?.timestamp,
+          completed: ['processing', 'shipped', 'delivered'].includes(orderData.status)
+        },
+        {
+          status: 'shipped',
+          title: 'Shipped',
+          description: 'Your order has been shipped and is on the way',
+          timestamp: orderData.statusHistory?.find(h => h.status === 'shipped')?.timestamp,
+          completed: ['shipped', 'delivered'].includes(orderData.status)
+        },
+        {
+          status: 'delivered',
+          title: 'Delivered',
+          description: 'Your order has been delivered successfully',
+          timestamp: orderData.statusHistory?.find(h => h.status === 'delivered')?.timestamp,
+          completed: orderData.status === 'delivered'
+        }
+      ]
+    };
+
+    sendResponse(res, 200, true, {
+      tracking: trackingInfo
+    }, "Order tracking information fetched successfully");
+
+  } catch (error) {
+    console.error('❌ Track order error:', error);
+    sendResponse(res, 500, false, null, null, "Failed to fetch tracking information", error.message);
+  }
+});
+
+// GET /api/orders/history - Get user order history
+router.get('/history', verifyAuth, async (req, res) => {
+  try {
+    const {
+      page = 1,
+      limit = 10,
+      status,
+      startDate,
+      endDate
+    } = req.query;
+
+    const userId = req.user.uid;
+    let query = db.collection('orders').where('userId', '==', userId);
+
+    if (status) {
+      query = query.where('status', '==', status);
+    }
+
+    if (startDate) {
+      query = query.where('createdAt', '>=', new Date(startDate));
+    }
+
+    if (endDate) {
+      query = query.where('createdAt', '<=', new Date(endDate));
+    }
+
+    query = query.orderBy('createdAt', 'desc');
+
+    const snapshot = await query.get();
+    const orders = [];
+
+    snapshot.forEach(doc => {
+      const orderData = doc.data();
+      orders.push({
+        id: doc.id,
+        ...orderData,
+        createdAt: orderData.createdAt?.toDate(),
+        updatedAt: orderData.updatedAt?.toDate(),
+        estimatedDelivery: orderData.estimatedDelivery?.toDate(),
+        cancelledAt: orderData.cancelledAt?.toDate()
+      });
+    });
+
+    // Apply pagination
+    const startIndex = (parseInt(page) - 1) * parseInt(limit);
+    const endIndex = startIndex + parseInt(limit);
+    const paginatedOrders = orders.slice(startIndex, endIndex);
+
+    const totalOrders = orders.length;
+    const totalPages = Math.ceil(totalOrders / parseInt(limit));
+
+    // Calculate summary statistics
+    const summary = {
+      totalOrders,
+      totalSpent: orders.reduce((sum, order) => sum + (order.pricing?.total || 0), 0),
+      statusCounts: orders.reduce((counts, order) => {
+        counts[order.status] = (counts[order.status] || 0) + 1;
+        return counts;
+      }, {})
+    };
+
+    sendResponse(res, 200, true, {
+      orders: paginatedOrders,
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages,
+        totalOrders,
+        hasNextPage: parseInt(page) < totalPages,
+        hasPrevPage: parseInt(page) > 1,
+        limit: parseInt(limit)
+      },
+      summary
+    }, "Order history fetched successfully");
+
+  } catch (error) {
+    console.error('❌ Get order history error:', error);
+    sendResponse(res, 500, false, null, null, "Failed to fetch order history", error.message);
+  }
+});
+

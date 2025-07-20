@@ -180,9 +180,16 @@ app.get("/", (req, res) => {
 app.use("/auth", authLimiter, require("./routes_new/auth"));
 app.use("/admin/auth", authLimiter, require("./routes_new/adminAuth"));
 
-// ========== ADMIN ROUTES ==========
-// New admin routes (primary)
+// ========== ADMIN ROUTES - FIXED: Direct admin routes without /api prefix ==========
 app.use("/admin", strictLimiter, require("./routes_new/admin"));
+app.use("/admin/products", strictLimiter, require("./routes_new/admin_products"));
+app.use("/admin/categories", strictLimiter, require("./routes_new/admin_categories"));
+app.use("/admin/orders", strictLimiter, require("./routes_new/admin_orders"));
+app.use("/admin/users", strictLimiter, require("./routes_new/users"));
+app.use("/admin/coupons", strictLimiter, require("./routes_new/coupons"));
+app.use("/admin/analytics", strictLimiter, require("./routes_new/admin_analytics"));
+app.use("/admin/settings", strictLimiter, require("./routes_new/admin_settings"));
+app.use("/admin/signals", strictLimiter, require("./routes_new/admin_signals"));
 
 // ========== PUBLIC API ROUTES - FIXED ORDER AND REGISTRATION ==========
 // Products routes - FIXED: Using the corrected products route

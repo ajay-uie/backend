@@ -109,35 +109,35 @@ app.get("/", (req, res) => {
     },
     endpoints: {
       // System
-      health: "/api/health",
-      countdown: "/api/countdown/active",
+      health: "/health",
+      countdown: "/countdown/active",
       // Authentication
-      auth: "/api/auth/*",
-      adminAuth: "/api/admin/auth/*",
+      auth: "/auth/*",
+      adminAuth: "/admin/auth/*",
       // Core Features
-      products: "/api/products/*",
-      orders: "/api/orders/*",
-      cart: "/api/cart/*",
-      users: "/api/users/*",
-      wishlist: "/api/wishlist/*",
-      coupons: "/api/coupons/*",
-      reviews: "/api/reviews/*",
-      payments: "/api/payments/*",
+      products: "/products/*",
+      orders: "/orders/*",
+      cart: "/cart/*",
+      users: "/users/*",
+      wishlist: "/wishlist/*",
+      coupons: "/coupons/*",
+      reviews: "/reviews/*",
+      payments: "/payments/*",
       // Admin
-      admin: "/api/admin/*",
+      admin: "/admin/*",
       // Extra Features
-      analytics: "/api/analytics/*",
-      notifications: "/api/notifications/*",
-      inventory: "/api/inventory/*",
-      shipping: "/api/shipping/*",
-      support: "/api/support/*",
-      marketing: "/api/marketing/*"
+      analytics: "/analytics/*",
+      notifications: "/notifications/*",
+      inventory: "/inventory/*",
+      shipping: "/shipping/*",
+      support: "/support/*",
+      marketing: "/marketing/*"
     }
   });
 });
 
 // Health check
-app.get("/api/health", (req, res) => {
+app.get("/health", (req, res) => {
   res.status(200).json({
     success: true,
     status: "OK",
@@ -149,19 +149,6 @@ app.get("/api/health", (req, res) => {
 });
 
 // Countdown routes
-app.get("/api/countdown/active", (req, res) => {
-  res.status(200).json({
-    success: true,
-    data: {
-      active: false,
-      endTime: null,
-      title: "No Active Countdown",
-      description: "No countdown is currently active"
-    },
-    message: "Countdown status retrieved successfully"
-  });
-});
-
 app.get("/countdown/active", (req, res) => {
   res.status(200).json({
     success: true,
@@ -175,10 +162,11 @@ app.get("/countdown/active", (req, res) => {
   });
 });
 
+
 // ========== AUTHENTICATION ROUTES (8 endpoints) ==========
 
-// POST /api/auth/register - Email/password registration
-app.post("/api/auth/register", authLimiter, async (req, res) => {
+// POST /auth/register - Email/password registration
+app.post("/auth/register", authLimiter, async (req, res) => {
   try {
     const { email, password, firstName, lastName } = req.body;
     
@@ -215,8 +203,8 @@ app.post("/api/auth/register", authLimiter, async (req, res) => {
   }
 });
 
-// POST /api/auth/register-token - Firebase token registration
-app.post("/api/auth/register-token", authLimiter, async (req, res) => {
+// POST /auth/register-token - Firebase token registration
+app.post("/auth/register-token", authLimiter, async (req, res) => {
   try {
     const { firebaseToken, userData } = req.body;
     
@@ -251,8 +239,8 @@ app.post("/api/auth/register-token", authLimiter, async (req, res) => {
   }
 });
 
-// POST /api/auth/login - Email/password login
-app.post("/api/auth/login", authLimiter, async (req, res) => {
+// POST /auth/login - Email/password login
+app.post("/auth/login", authLimiter, async (req, res) => {
   try {
     const { email, password } = req.body;
     
@@ -287,8 +275,8 @@ app.post("/api/auth/login", authLimiter, async (req, res) => {
   }
 });
 
-// POST /api/auth/login-token - Firebase token login
-app.post("/api/auth/login-token", authLimiter, async (req, res) => {
+// POST /auth/login-token - Firebase token login
+app.post("/auth/login-token", authLimiter, async (req, res) => {
   try {
     const { firebaseToken } = req.body;
     
@@ -324,8 +312,8 @@ app.post("/api/auth/login-token", authLimiter, async (req, res) => {
   }
 });
 
-// POST /api/auth/google-login - Google OAuth login
-app.post("/api/auth/google-login", authLimiter, async (req, res) => {
+// POST /auth/google-login - Google OAuth login
+app.post("/auth/google-login", authLimiter, async (req, res) => {
   try {
     const { googleToken } = req.body;
     
@@ -361,8 +349,8 @@ app.post("/api/auth/google-login", authLimiter, async (req, res) => {
   }
 });
 
-// POST /api/auth/verify - Token verification
-app.post("/api/auth/verify", authLimiter, async (req, res) => {
+// POST /auth/verify - Token verification
+app.post("/auth/verify", authLimiter, async (req, res) => {
   try {
     const { token } = req.body;
     
@@ -395,8 +383,8 @@ app.post("/api/auth/verify", authLimiter, async (req, res) => {
   }
 });
 
-// POST /api/auth/logout - User logout
-app.post("/api/auth/logout", authLimiter, async (req, res) => {
+// POST /auth/logout - User logout
+app.post("/auth/logout", authLimiter, async (req, res) => {
   try {
     res.status(200).json({
       success: true,
@@ -411,8 +399,8 @@ app.post("/api/auth/logout", authLimiter, async (req, res) => {
   }
 });
 
-// POST /api/auth/forgot-password - Password reset
-app.post("/api/auth/forgot-password", authLimiter, async (req, res) => {
+// POST /auth/forgot-password - Password reset
+app.post("/auth/forgot-password", authLimiter, async (req, res) => {
   try {
     const { email } = req.body;
     
@@ -439,8 +427,8 @@ app.post("/api/auth/forgot-password", authLimiter, async (req, res) => {
 
 // ========== ADMIN AUTHENTICATION ROUTES (3 endpoints) ==========
 
-// POST /api/admin/auth/login - Admin login
-app.post("/api/admin/auth/login", authLimiter, async (req, res) => {
+// POST /admin/auth/login - Admin login
+app.post("/admin/auth/login", authLimiter, async (req, res) => {
   try {
     const { email, password } = req.body;
     
@@ -474,12 +462,12 @@ app.post("/api/admin/auth/login", authLimiter, async (req, res) => {
   }
 });
 
-// GET /api/admin/auth/profile - Admin profile
-app.get("/api/admin/auth/profile", authLimiter, async (req, res) => {
+// GET /admin/auth/profile - Admin profile
+app.get("/admin/auth/profile", authLimiter, async (req, res) => {
   try {
     const admin = {
       id: 1,
-      email: "admin@fragransia.com",
+      email: "admin@fragransia.in",
       role: "admin",
       permissions: ["read", "write", "delete"],
       lastLogin: new Date()
@@ -499,8 +487,8 @@ app.get("/api/admin/auth/profile", authLimiter, async (req, res) => {
   }
 });
 
-// POST /api/admin/auth/logout - Admin logout
-app.post("/api/admin/auth/logout", authLimiter, async (req, res) => {
+// POST /admin/auth/logout - Admin logout
+app.post("/admin/auth/logout", authLimiter, async (req, res) => {
   try {
     res.status(200).json({
       success: true,
@@ -517,8 +505,8 @@ app.post("/api/admin/auth/logout", authLimiter, async (req, res) => {
 
 // ========== PRODUCTS ROUTES (5 endpoints) ==========
 
-// GET /api/products - Get all products
-app.get("/api/products", apiLimiter, async (req, res) => {
+// GET /products - Get all products
+app.get("/products", apiLimiter, async (req, res) => {
   try {
     const { page = 1, limit = 20, category, search, sort = 'name' } = req.query;
     
@@ -580,8 +568,8 @@ app.get("/api/products", apiLimiter, async (req, res) => {
   }
 });
 
-// GET /api/products/:id - Get specific product
-app.get("/api/products/:id", apiLimiter, async (req, res) => {
+// GET /products/:id - Get specific product
+app.get("/products/:id", apiLimiter, async (req, res) => {
   try {
     const { id } = req.params;
     
@@ -626,8 +614,8 @@ app.get("/api/products/:id", apiLimiter, async (req, res) => {
   }
 });
 
-// POST /api/products - Create product (Admin)
-app.post("/api/products", strictLimiter, async (req, res) => {
+// POST /products - Create product (Admin)
+app.post("/products", strictLimiter, async (req, res) => {
   try {
     const { name, description, price, category, stock, images } = req.body;
     
@@ -666,8 +654,8 @@ app.post("/api/products", strictLimiter, async (req, res) => {
   }
 });
 
-// PUT /api/products/:id - Update product (Admin)
-app.put("/api/products/:id", strictLimiter, async (req, res) => {
+// PUT /products/:id - Update product (Admin)
+app.put("/products/:id", strictLimiter, async (req, res) => {
   try {
     const { id } = req.params;
     const updates = req.body;
@@ -690,8 +678,8 @@ app.put("/api/products/:id", strictLimiter, async (req, res) => {
   }
 });
 
-// DELETE /api/products/:id - Delete product (Admin)
-app.delete("/api/products/:id", strictLimiter, async (req, res) => {
+// DELETE /products/:id - Delete product (Admin)
+app.delete("/products/:id", strictLimiter, async (req, res) => {
   try {
     const { id } = req.params;
     
@@ -711,8 +699,8 @@ app.delete("/api/products/:id", strictLimiter, async (req, res) => {
 
 // ========== ORDERS ROUTES (5 endpoints) ==========
 
-// GET /api/orders - Get user orders
-app.get("/api/orders", apiLimiter, async (req, res) => {
+// GET /orders - Get user orders
+app.get("/orders", apiLimiter, async (req, res) => {
   try {
     const { page = 1, limit = 10, status } = req.query;
     
@@ -778,8 +766,8 @@ app.get("/api/orders", apiLimiter, async (req, res) => {
   }
 });
 
-// GET /api/orders/:id - Get specific order
-app.get("/api/orders/:id", apiLimiter, async (req, res) => {
+// GET /orders/:id - Get specific order
+app.get("/orders/:id", apiLimiter, async (req, res) => {
   try {
     const { id } = req.params;
     
@@ -843,8 +831,8 @@ app.get("/api/orders/:id", apiLimiter, async (req, res) => {
   }
 });
 
-// POST /api/orders - Create order
-app.post("/api/orders", apiLimiter, async (req, res) => {
+// POST /orders - Create order
+app.post("/orders", apiLimiter, async (req, res) => {
   try {
     const { items, shippingAddress, billingAddress, paymentMethod } = req.body;
     
@@ -890,8 +878,8 @@ app.post("/api/orders", apiLimiter, async (req, res) => {
   }
 });
 
-// PUT /api/orders/:id/status - Update order status (Admin)
-app.put("/api/orders/:id/status", strictLimiter, async (req, res) => {
+// PUT /orders/:id/status - Update order status (Admin)
+app.put("/orders/:id/status", strictLimiter, async (req, res) => {
   try {
     const { id } = req.params;
     const { status, trackingNumber } = req.body;
@@ -922,8 +910,8 @@ app.put("/api/orders/:id/status", strictLimiter, async (req, res) => {
   }
 });
 
-// DELETE /api/orders/:id - Cancel order
-app.delete("/api/orders/:id", apiLimiter, async (req, res) => {
+// DELETE /orders/:id - Cancel order
+app.delete("/orders/:id", apiLimiter, async (req, res) => {
   try {
     const { id } = req.params;
     
@@ -947,8 +935,8 @@ app.delete("/api/orders/:id", apiLimiter, async (req, res) => {
 
 // ========== CART ROUTES (6 endpoints) ==========
 
-// GET /api/cart - Get user cart
-app.get("/api/cart", apiLimiter, async (req, res) => {
+// GET /cart - Get user cart
+app.get("/cart", apiLimiter, async (req, res) => {
   try {
     const cart = {
       id: 1,
@@ -997,8 +985,8 @@ app.get("/api/cart", apiLimiter, async (req, res) => {
   }
 });
 
-// POST /api/cart/items - Add item to cart
-app.post("/api/cart/items", apiLimiter, async (req, res) => {
+// POST /cart/items - Add item to cart
+app.post("/cart/items", apiLimiter, async (req, res) => {
   try {
     const { productId, quantity = 1, size, variant } = req.body;
     
@@ -1032,8 +1020,8 @@ app.post("/api/cart/items", apiLimiter, async (req, res) => {
   }
 });
 
-// PUT /api/cart/items/:id - Update cart item
-app.put("/api/cart/items/:id", apiLimiter, async (req, res) => {
+// PUT /cart/items/:id - Update cart item
+app.put("/cart/items/:id", apiLimiter, async (req, res) => {
   try {
     const { id } = req.params;
     const { quantity } = req.body;
@@ -1063,8 +1051,8 @@ app.put("/api/cart/items/:id", apiLimiter, async (req, res) => {
   }
 });
 
-// DELETE /api/cart/items/:id - Remove item from cart
-app.delete("/api/cart/items/:id", apiLimiter, async (req, res) => {
+// DELETE /cart/items/:id - Remove item from cart
+app.delete("/cart/items/:id", apiLimiter, async (req, res) => {
   try {
     const { id } = req.params;
     
@@ -1082,8 +1070,8 @@ app.delete("/api/cart/items/:id", apiLimiter, async (req, res) => {
   }
 });
 
-// DELETE /api/cart - Clear cart
-app.delete("/api/cart", apiLimiter, async (req, res) => {
+// DELETE /cart - Clear cart
+app.delete("/cart", apiLimiter, async (req, res) => {
   try {
     res.status(200).json({
       success: true,
@@ -1099,8 +1087,8 @@ app.delete("/api/cart", apiLimiter, async (req, res) => {
   }
 });
 
-// POST /api/cart/sync - Sync cart with server
-app.post("/api/cart/sync", apiLimiter, async (req, res) => {
+// POST /cart/sync - Sync cart with server
+app.post("/cart/sync", apiLimiter, async (req, res) => {
   try {
     const { items } = req.body;
     
@@ -1123,8 +1111,8 @@ app.post("/api/cart/sync", apiLimiter, async (req, res) => {
 
 // ========== USERS ROUTES (8 endpoints) ==========
 
-// GET /api/users/profile - Get user profile
-app.get("/api/users/profile", apiLimiter, async (req, res) => {
+// GET /users/profile - Get user profile
+app.get("/users/profile", apiLimiter, async (req, res) => {
   try {
     const user = {
       id: 123,
@@ -1162,8 +1150,8 @@ app.get("/api/users/profile", apiLimiter, async (req, res) => {
   }
 });
 
-// PUT /api/users/profile - Update user profile
-app.put("/api/users/profile", apiLimiter, async (req, res) => {
+// PUT /users/profile - Update user profile
+app.put("/users/profile", apiLimiter, async (req, res) => {
   try {
     const updates = req.body;
     
@@ -1184,8 +1172,8 @@ app.put("/api/users/profile", apiLimiter, async (req, res) => {
   }
 });
 
-// GET /api/users/addresses - Get user addresses
-app.get("/api/users/addresses", apiLimiter, async (req, res) => {
+// GET /users/addresses - Get user addresses
+app.get("/users/addresses", apiLimiter, async (req, res) => {
   try {
     const addresses = [
       {
@@ -1232,8 +1220,8 @@ app.get("/api/users/addresses", apiLimiter, async (req, res) => {
   }
 });
 
-// POST /api/users/addresses - Add user address
-app.post("/api/users/addresses", apiLimiter, async (req, res) => {
+// POST /users/addresses - Add user address
+app.post("/users/addresses", apiLimiter, async (req, res) => {
   try {
     const { type, name, street, city, state, zipCode, country, phone, isDefault } = req.body;
     
@@ -1273,8 +1261,8 @@ app.post("/api/users/addresses", apiLimiter, async (req, res) => {
   }
 });
 
-// PUT /api/users/addresses/:id - Update user address
-app.put("/api/users/addresses/:id", apiLimiter, async (req, res) => {
+// PUT /users/addresses/:id - Update user address
+app.put("/users/addresses/:id", apiLimiter, async (req, res) => {
   try {
     const { id } = req.params;
     const updates = req.body;
@@ -1297,8 +1285,8 @@ app.put("/api/users/addresses/:id", apiLimiter, async (req, res) => {
   }
 });
 
-// DELETE /api/users/addresses/:id - Delete user address
-app.delete("/api/users/addresses/:id", apiLimiter, async (req, res) => {
+// DELETE /users/addresses/:id - Delete user address
+app.delete("/users/addresses/:id", apiLimiter, async (req, res) => {
   try {
     const { id } = req.params;
     
@@ -1316,8 +1304,8 @@ app.delete("/api/users/addresses/:id", apiLimiter, async (req, res) => {
   }
 });
 
-// PUT /api/users/password - Change password
-app.put("/api/users/password", apiLimiter, async (req, res) => {
+// PUT /users/password - Change password
+app.put("/users/password", apiLimiter, async (req, res) => {
   try {
     const { currentPassword, newPassword } = req.body;
     
@@ -1342,8 +1330,8 @@ app.put("/api/users/password", apiLimiter, async (req, res) => {
   }
 });
 
-// GET /api/users/order-history - Get user order history
-app.get("/api/users/order-history", apiLimiter, async (req, res) => {
+// GET /users/order-history - Get user order history
+app.get("/users/order-history", apiLimiter, async (req, res) => {
   try {
     const { page = 1, limit = 10 } = req.query;
     
@@ -1396,8 +1384,8 @@ app.get("/api/users/order-history", apiLimiter, async (req, res) => {
 
 // ========== WISHLIST ROUTES (7 endpoints) ==========
 
-// GET /api/wishlist - Get user wishlist
-app.get("/api/wishlist", apiLimiter, async (req, res) => {
+// GET /wishlist - Get user wishlist
+app.get("/wishlist", apiLimiter, async (req, res) => {
   try {
     const { page = 1, limit = 20 } = req.query;
     
@@ -1462,8 +1450,8 @@ app.get("/api/wishlist", apiLimiter, async (req, res) => {
   }
 });
 
-// POST /api/wishlist/items - Add item to wishlist
-app.post("/api/wishlist/items", apiLimiter, async (req, res) => {
+// POST /wishlist/items - Add item to wishlist
+app.post("/wishlist/items", apiLimiter, async (req, res) => {
   try {
     const { productId } = req.body;
     
@@ -1494,8 +1482,8 @@ app.post("/api/wishlist/items", apiLimiter, async (req, res) => {
   }
 });
 
-// DELETE /api/wishlist/items/:id - Remove item from wishlist
-app.delete("/api/wishlist/items/:id", apiLimiter, async (req, res) => {
+// DELETE /wishlist/items/:id - Remove item from wishlist
+app.delete("/wishlist/items/:id", apiLimiter, async (req, res) => {
   try {
     const { id } = req.params;
     
@@ -1513,8 +1501,8 @@ app.delete("/api/wishlist/items/:id", apiLimiter, async (req, res) => {
   }
 });
 
-// POST /api/wishlist/items/:id/move-to-cart - Move wishlist item to cart
-app.post("/api/wishlist/items/:id/move-to-cart", apiLimiter, async (req, res) => {
+// POST /wishlist/items/:id/move-to-cart - Move wishlist item to cart
+app.post("/wishlist/items/:id/move-to-cart", apiLimiter, async (req, res) => {
   try {
     const { id } = req.params;
     const { quantity = 1 } = req.body;
@@ -1538,8 +1526,8 @@ app.post("/api/wishlist/items/:id/move-to-cart", apiLimiter, async (req, res) =>
   }
 });
 
-// DELETE /api/wishlist - Clear wishlist
-app.delete("/api/wishlist", apiLimiter, async (req, res) => {
+// DELETE /wishlist - Clear wishlist
+app.delete("/wishlist", apiLimiter, async (req, res) => {
   try {
     res.status(200).json({
       success: true,
@@ -1555,8 +1543,8 @@ app.delete("/api/wishlist", apiLimiter, async (req, res) => {
   }
 });
 
-// GET /api/wishlist/stats - Get wishlist statistics
-app.get("/api/wishlist/stats", apiLimiter, async (req, res) => {
+// GET /wishlist/stats - Get wishlist statistics
+app.get("/wishlist/stats", apiLimiter, async (req, res) => {
   try {
     res.status(200).json({
       success: true,
@@ -1589,8 +1577,8 @@ app.get("/api/wishlist/stats", apiLimiter, async (req, res) => {
   }
 });
 
-// POST /api/wishlist/sync - Sync wishlist
-app.post("/api/wishlist/sync", apiLimiter, async (req, res) => {
+// POST /wishlist/sync - Sync wishlist
+app.post("/wishlist/sync", apiLimiter, async (req, res) => {
   try {
     const { items } = req.body;
     
@@ -1613,20 +1601,20 @@ app.post("/api/wishlist/sync", apiLimiter, async (req, res) => {
 
 // ========== COUPONS ROUTES (6 endpoints) ==========
 
-// GET /api/coupons - Get available coupons
-app.get("/api/coupons", apiLimiter, async (req, res) => {
+// GET /coupons - Get available coupons
+app.get("/coupons", apiLimiter, async (req, res) => {
   try {
     const { active = true } = req.query;
     
     const coupons = [
       {
         id: 1,
-        code: "WELCOME20",
+        code: "WELCOME45",
         name: "Welcome Discount",
-        description: "20% off for new customers",
+        description: "45% off for new customers",
         type: "percentage",
-        value: 20,
-        minOrderValue: 50.00,
+        value: 1020,
+        minOrderValue: 5000.00,
         maxDiscount: 100.00,
         usageLimit: 1000,
         usedCount: 245,
@@ -1637,13 +1625,13 @@ app.get("/api/coupons", apiLimiter, async (req, res) => {
       },
       {
         id: 2,
-        code: "SAVE15",
+        code: "SAVE150",
         name: "Save 15",
-        description: "$15 off on orders over $100",
+        description: "₹150 off on orders over $100",
         type: "fixed",
-        value: 15.00,
-        minOrderValue: 100.00,
-        maxDiscount: 15.00,
+        value: 150.00,
+        minOrderValue: 1000.00,
+        maxDiscount: 150.00,
         usageLimit: 500,
         usedCount: 89,
         validFrom: "2025-01-15T00:00:00Z",
@@ -1667,8 +1655,8 @@ app.get("/api/coupons", apiLimiter, async (req, res) => {
   }
 });
 
-// POST /api/coupons/validate - Validate coupon
-app.post("/api/coupons/validate", apiLimiter, async (req, res) => {
+// POST /coupons/validate - Validate coupon
+app.post("/coupons/validate", apiLimiter, async (req, res) => {
   try {
     const { code, orderValue, items } = req.body;
     
@@ -1718,8 +1706,8 @@ app.post("/api/coupons/validate", apiLimiter, async (req, res) => {
   }
 });
 
-// POST /api/coupons/apply - Apply coupon to order
-app.post("/api/coupons/apply", apiLimiter, async (req, res) => {
+// POST /coupons/apply - Apply coupon to order
+app.post("/coupons/apply", apiLimiter, async (req, res) => {
   try {
     const { code, orderId } = req.body;
     
@@ -1749,8 +1737,8 @@ app.post("/api/coupons/apply", apiLimiter, async (req, res) => {
   }
 });
 
-// GET /api/coupons/public - Get public coupons
-app.get("/api/coupons/public", async (req, res) => {
+// GET /coupons/public - Get public coupons
+app.get("/coupons/public", async (req, res) => {
   try {
     const publicCoupons = [
       {
@@ -1783,8 +1771,8 @@ app.get("/api/coupons/public", async (req, res) => {
   }
 });
 
-// GET /api/coupons/:id/usage - Get coupon usage statistics (Admin)
-app.get("/api/coupons/:id/usage", strictLimiter, async (req, res) => {
+// GET /coupons/:id/usage - Get coupon usage statistics (Admin)
+app.get("/coupons/:id/usage", strictLimiter, async (req, res) => {
   try {
     const { id } = req.params;
     
@@ -1814,8 +1802,8 @@ app.get("/api/coupons/:id/usage", strictLimiter, async (req, res) => {
   }
 });
 
-// POST /api/coupons - Create coupon (Admin)
-app.post("/api/coupons", strictLimiter, async (req, res) => {
+// POST /coupons - Create coupon (Admin)
+app.post("/coupons", strictLimiter, async (req, res) => {
   try {
     const { code, name, description, type, value, minOrderValue, usageLimit, validUntil } = req.body;
     
@@ -1862,8 +1850,8 @@ app.post("/api/coupons", strictLimiter, async (req, res) => {
 
 // ========== REVIEWS ROUTES (4 endpoints) ==========
 
-// GET /api/reviews - Get product reviews
-app.get("/api/reviews", apiLimiter, async (req, res) => {
+// GET /reviews - Get product reviews
+app.get("/reviews", apiLimiter, async (req, res) => {
   try {
     const { productId, page = 1, limit = 10, rating } = req.query;
     
@@ -1929,8 +1917,8 @@ app.get("/api/reviews", apiLimiter, async (req, res) => {
   }
 });
 
-// POST /api/reviews - Create review
-app.post("/api/reviews", apiLimiter, async (req, res) => {
+// POST /reviews - Create review
+app.post("/reviews", apiLimiter, async (req, res) => {
   try {
     const { productId, rating, title, comment } = req.body;
     
@@ -1969,8 +1957,8 @@ app.post("/api/reviews", apiLimiter, async (req, res) => {
   }
 });
 
-// PUT /api/reviews/:id/helpful - Mark review as helpful
-app.put("/api/reviews/:id/helpful", apiLimiter, async (req, res) => {
+// PUT /reviews/:id/helpful - Mark review as helpful
+app.put("/reviews/:id/helpful", apiLimiter, async (req, res) => {
   try {
     const { id } = req.params;
     const { helpful = true } = req.body;
@@ -1993,8 +1981,8 @@ app.put("/api/reviews/:id/helpful", apiLimiter, async (req, res) => {
   }
 });
 
-// DELETE /api/reviews/:id - Delete review
-app.delete("/api/reviews/:id", apiLimiter, async (req, res) => {
+// DELETE /reviews/:id - Delete review
+app.delete("/reviews/:id", apiLimiter, async (req, res) => {
   try {
     const { id } = req.params;
     
@@ -2014,8 +2002,8 @@ app.delete("/api/reviews/:id", apiLimiter, async (req, res) => {
 
 // ========== PAYMENTS ROUTES (3 endpoints) ==========
 
-// POST /api/payments/process - Process payment
-app.post("/api/payments/process", strictLimiter, async (req, res) => {
+// POST /payments/process - Process payment
+app.post("/payments/process", strictLimiter, async (req, res) => {
   try {
     const { orderId, paymentMethod, amount, paymentDetails } = req.body;
     
@@ -2051,8 +2039,8 @@ app.post("/api/payments/process", strictLimiter, async (req, res) => {
   }
 });
 
-// GET /api/payments/:id/status - Get payment status
-app.get("/api/payments/:id/status", apiLimiter, async (req, res) => {
+// GET /payments/:id/status - Get payment status
+app.get("/payments/:id/status", apiLimiter, async (req, res) => {
   try {
     const { id } = req.params;
     
@@ -2076,8 +2064,8 @@ app.get("/api/payments/:id/status", apiLimiter, async (req, res) => {
   }
 });
 
-// POST /api/payments/refund - Process refund
-app.post("/api/payments/refund", strictLimiter, async (req, res) => {
+// POST /payments/refund - Process refund
+app.post("/payments/refund", strictLimiter, async (req, res) => {
   try {
     const { paymentId, amount, reason } = req.body;
     
@@ -2114,8 +2102,8 @@ app.post("/api/payments/refund", strictLimiter, async (req, res) => {
 
 // ========== ADMIN ROUTES (13 endpoints) ==========
 
-// GET /api/admin/dashboard - Admin dashboard
-app.get("/api/admin/dashboard", strictLimiter, async (req, res) => {
+// GET /admin/dashboard - Admin dashboard
+app.get("/admin/dashboard", strictLimiter, async (req, res) => {
   try {
     res.status(200).json({
       success: true,
@@ -2146,8 +2134,8 @@ app.get("/api/admin/dashboard", strictLimiter, async (req, res) => {
   }
 });
 
-// GET /api/admin/users - Get all users (Admin)
-app.get("/api/admin/users", strictLimiter, async (req, res) => {
+// GET /admin/users - Get all users (Admin)
+app.get("/admin/users", strictLimiter, async (req, res) => {
   try {
     const { page = 1, limit = 20, search, status } = req.query;
     
@@ -2198,8 +2186,8 @@ app.get("/api/admin/users", strictLimiter, async (req, res) => {
   }
 });
 
-// GET /api/admin/orders - Get all orders (Admin)
-app.get("/api/admin/orders", strictLimiter, async (req, res) => {
+// GET /admin/orders - Get all orders (Admin)
+app.get("/admin/orders", strictLimiter, async (req, res) => {
   try {
     const { page = 1, limit = 20, status, search } = req.query;
     
@@ -2344,7 +2332,7 @@ server.listen(PORT, () => {
   console.log(`🔧 All routes defined inline`);
   
   if (NODE_ENV === 'development') {
-    console.log(`❤️ Health Check: http://localhost:${PORT}/api/health`);
+    console.log(`❤️ Health Check: http://localhost:${PORT}/health`);
     console.log(`📋 All endpoints: http://localhost:${PORT}/`);
   }
 });

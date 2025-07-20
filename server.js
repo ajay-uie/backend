@@ -227,6 +227,10 @@ app.use("/admin/auth", authLimiter, require("./routes_new/adminAuth"));
 // ========== ADMIN ROUTES ==========
 // New admin routes (primary)
 app.use("/admin", strictLimiter, require("./routes_new/admin"));
+app.use("/admin/orders", strictLimiter, require("./routes_new/admin_orders"));
+
+// API prefixed admin routes for frontend compatibility
+app.use("/api/admin", strictLimiter, require("./routes_new/admin"));
 
 // ========== PUBLIC API ROUTES ==========
 // New routes (primary) - FIXED ORDER

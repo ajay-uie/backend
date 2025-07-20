@@ -1,37 +1,10 @@
-const express = require("express");
-const jwt = require("jsonwebtoken");
-const { body, validationResult } = require("express-validator");
-const rateLimit = require("express-rate-limit");
-const { db, admin, firebaseAuth } = require("../auth/firebaseConfig");
+const express = require('express');
+const { body, validationResult } = require('express-validator');
+const { firebaseAuth, db, realtimeDb, admin } = require('../auth/firebaseConfig');
+const jwt = require('jsonwebtoken');
+const bcrypt = require('bcryptjs');
 
 const router = express.Router();
-
-// Rate limiter for authentication routes
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 10, // Increased limit for better user experience
-  message: { 
-    success: false,
-    error: "Too many authentication attempts, please try again later." 
-  }
-});
-
-router.use(authLimiter);
-
-// JWT Secret validation
-if (!process.env.JWT_SECRET) {
-  console.warn("⚠️ JWT_SECRET not set, using default for development");
-  process.env.JWT_SECRET = "development-jwt-secret-key";
-}
-
-// Helper: Generate JWT Token
-const generateToken = (user) => {
-  return jwt.sign(
-    { uid: user.uid, email: user.email, role: user.role },
-    process.env.JWT_SECRET,
-    { expiresIn: "7d" }
-  );
-};
 
 // Helper: Standard Response
 const sendResponse = (res, statusCode, success, data = null, message = null, error = null, details = null) => {
@@ -44,465 +17,481 @@ const sendResponse = (res, statusCode, success, data = null, message = null, err
   res.status(statusCode).json(response);
 };
 
-// POST /auth/register - User Registration with real Firebase integration
-router.post("/register", [
-  body("email").isEmail().normalizeEmail().withMessage("Valid email is required"),
-  body("password").isLength({ min: 6 }).withMessage("Password must be at least 6 characters"),
-  body("firstName").notEmpty().withMessage("First name is required"),
-  body("lastName").notEmpty().withMessage("Last name is required")
+// Helper: Generate JWT Token
+const generateJWT = (user) => {
+  return jwt.sign(
+    { 
+      uid: user.uid, 
+      email: user.email,
+      role: user.role || 'user',
+      emailVerified: user.emailVerified 
+    },
+    process.env.JWT_SECRET || 'your-secret-key',
+    { expiresIn: '7d' }
+  );
+};
+
+// Helper: Create user profile in Firestore
+const createUserProfile = async (uid, userData) => {
+  try {
+    const userProfile = {
+      uid,
+      email: userData.email,
+      displayName: userData.displayName || userData.name || '',
+      photoURL: userData.photoURL || '',
+      role: userData.role || 'user',
+      isActive: true,
+      emailVerified: userData.emailVerified || false,
+      provider: userData.provider || 'email',
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      profile: {
+        firstName: userData.firstName || '',
+        lastName: userData.lastName || '',
+        phone: userData.phone || '',
+        address: userData.address || {},
+        preferences: {
+          newsletter: true,
+          notifications: true
+        }
+      }
+    };
+
+    await db.collection('users').doc(uid).set(userProfile);
+    
+    // Update real-time analytics
+    await realtimeDb.ref('analytics/users').transaction((current) => {
+      return (current || 0) + 1;
+    });
+
+    return userProfile;
+  } catch (error) {
+    console.error('❌ Error creating user profile:', error);
+    throw error;
+  }
+};
+
+// POST /auth/register - Manual registration with email/password
+router.post('/register', [
+  body('email').isEmail().withMessage('Valid email is required'),
+  body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),
+  body('firstName').notEmpty().withMessage('First name is required'),
+  body('lastName').notEmpty().withMessage('Last name is required')
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return sendResponse(res, 400, false, null, "Validation failed", "Invalid input data", errors.array());
+      return sendResponse(res, 400, false, null, null, "Validation failed", errors.array());
     }
 
-    const { email, password, firstName, lastName, phoneNumber } = req.body;
+    const { email, password, firstName, lastName, phone } = req.body;
 
-    console.log(`👤 Registering user: ${email}`);
-
-    // Check if user already exists in Firestore
-    const existingUserQuery = await db.collection("users").where("email", "==", email).get();
-    if (!existingUserQuery.empty) {
-      return sendResponse(res, 409, false, null, null, "User already exists with this email");
-    }
+    console.log(`👤 Registering new user: ${email}`);
 
     // Create user in Firebase Auth
-    let firebaseUser;
-    try {
-      firebaseUser = await admin.auth().createUser({
-        email,
-        password,
-        emailVerified: false,
-        displayName: `${firstName} ${lastName}`
-      });
-    } catch (firebaseError) {
-      console.error("Firebase Auth error:", firebaseError);
-      
-      if (firebaseError.code === 'auth/email-already-exists') {
-        return sendResponse(res, 409, false, null, null, "Email already registered");
-      }
-      if (firebaseError.code === 'auth/weak-password') {
-        return sendResponse(res, 400, false, null, null, "Password is too weak");
-      }
-      if (firebaseError.code === 'auth/invalid-email') {
-        return sendResponse(res, 400, false, null, null, "Invalid email format");
-      }
-      
-      return sendResponse(res, 500, false, null, null, "Failed to create user account");
-    }
-    
-    const uid = firebaseUser.uid;
-
-    // Create user document in Firestore
-    const userData = {
-      uid,
+    const userRecord = await firebaseAuth.createUser({
       email,
-      firstName,
-      lastName,
-      phoneNumber: phoneNumber || "",
-      role: "customer",
-      isActive: true,
-      emailVerified: false,
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      lastLogin: null,
-      preferences: { 
-        newsletter: true, 
-        notifications: true,
-        language: "en",
-        currency: "INR"
-      },
-      addresses: [],
-      orderHistory: [],
-      wishlist: [],
-      cart: []
-    };
-
-    await db.collection("users").doc(uid).set(userData);
-
-    // Generate JWT token
-    const token = generateToken({
-      uid,
-      email,
-      role: userData.role
+      password,
+      displayName: `${firstName} ${lastName}`,
+      emailVerified: false
     });
 
-    console.log(`✅ User registered successfully: ${email}`);
+    console.log(`✅ Firebase user created: ${userRecord.uid}`);
+
+    // Create user profile in Firestore
+    const userProfile = await createUserProfile(userRecord.uid, {
+      email,
+      displayName: `${firstName} ${lastName}`,
+      firstName,
+      lastName,
+      phone,
+      emailVerified: false,
+      provider: 'email'
+    });
+
+    // Generate JWT token
+    const token = generateJWT({
+      uid: userRecord.uid,
+      email: userRecord.email,
+      emailVerified: userRecord.emailVerified,
+      role: 'user'
+    });
+
+    // Send email verification (in production, you'd send actual email)
+    console.log(`📧 Email verification would be sent to: ${email}`);
 
     sendResponse(res, 201, true, {
       user: {
-        uid,
-        email,
-        firstName,
-        lastName,
-        phoneNumber: userData.phoneNumber,
-        role: userData.role,
-        emailVerified: userData.emailVerified,
-        preferences: userData.preferences
+        uid: userRecord.uid,
+        email: userRecord.email,
+        displayName: userProfile.displayName,
+        emailVerified: userRecord.emailVerified,
+        role: userProfile.role
       },
       token
-    }, "User registered successfully");
+    }, "User registered successfully. Please verify your email.");
 
   } catch (error) {
-    console.error("Registration error:", error);
-    sendResponse(res, 500, false, null, null, "Internal server error during registration");
+    console.error('❌ Registration error:', error);
+    
+    if (error.code === 'auth/email-already-exists') {
+      return sendResponse(res, 400, false, null, null, "Email already exists");
+    }
+    
+    sendResponse(res, 500, false, null, null, "Registration failed", error.message);
   }
 });
 
-// POST /auth/login - User Login with real Firebase integration
-router.post("/login", [
-  body("email").isEmail().normalizeEmail().withMessage("Valid email is required"),
-  body("password").isLength({ min: 6 }).withMessage("Password is required")
+// POST /auth/login - Manual login with email/password
+router.post('/login', [
+  body('email').isEmail().withMessage('Valid email is required'),
+  body('password').notEmpty().withMessage('Password is required')
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return sendResponse(res, 400, false, null, "Validation failed", "Invalid input data", errors.array());
+      return sendResponse(res, 400, false, null, null, "Validation failed", errors.array());
     }
 
     const { email, password } = req.body;
 
-    console.log(`👤 Login attempt for: ${email}`);
+    console.log(`🔐 Login attempt for: ${email}`);
 
-    // For development, we'll use a simplified authentication approach
-    // In production, you would typically use Firebase Client SDK for authentication
+    // Get user by email from Firebase Auth
+    const userRecord = await firebaseAuth.getUserByEmail(email);
     
-    // Check if user exists in Firestore
-    const userQuery = await db.collection("users").where("email", "==", email).get();
+    // Get user profile from Firestore
+    const userDoc = await db.collection('users').doc(userRecord.uid).get();
     
-    if (userQuery.empty) {
-      console.log(`❌ User not found: ${email}`);
-      return sendResponse(res, 401, false, null, null, "Invalid email or password");
+    if (!userDoc.exists) {
+      return sendResponse(res, 404, false, null, null, "User profile not found");
     }
 
-    const userDoc = userQuery.docs[0];
-    const userData = userDoc.data();
+    const userProfile = userDoc.data();
 
     // Check if user is active
-    if (!userData.isActive) {
-      return sendResponse(res, 401, false, null, null, "Account has been deactivated");
+    if (!userProfile.isActive) {
+      return sendResponse(res, 403, false, null, null, "Account is deactivated");
     }
 
-    // For development, we'll accept any password for existing users
-    // In production, you would verify the password through Firebase Auth
-    
-    // Update last login
-    await db.collection("users").doc(userData.uid).update({
-      lastLogin: admin.firestore.FieldValue.serverTimestamp(),
+    // For Firebase Auth, we can't directly verify password
+    // In production, you'd use Firebase Client SDK for authentication
+    // Here we'll create a custom token for the user
+    const customToken = await firebaseAuth.createCustomToken(userRecord.uid);
+
+    // Generate JWT token
+    const token = generateJWT({
+      uid: userRecord.uid,
+      email: userRecord.email,
+      emailVerified: userRecord.emailVerified,
+      role: userProfile.role
+    });
+
+    // Update last login time
+    await db.collection('users').doc(userRecord.uid).update({
+      lastLoginAt: admin.firestore.FieldValue.serverTimestamp(),
       updatedAt: admin.firestore.FieldValue.serverTimestamp()
     });
 
-    // Generate JWT token
-    const token = generateToken(userData);
-
-    console.log(`✅ User logged in successfully: ${email}`);
+    // Update real-time analytics
+    await realtimeDb.ref('analytics/logins').transaction((current) => {
+      return (current || 0) + 1;
+    });
 
     sendResponse(res, 200, true, {
       user: {
-        uid: userData.uid,
-        email: userData.email,
-        firstName: userData.firstName,
-        lastName: userData.lastName,
-        phoneNumber: userData.phoneNumber,
-        role: userData.role,
-        emailVerified: userData.emailVerified,
-        preferences: userData.preferences,
-        lastLogin: new Date()
+        uid: userRecord.uid,
+        email: userRecord.email,
+        displayName: userProfile.displayName,
+        photoURL: userProfile.photoURL,
+        emailVerified: userRecord.emailVerified,
+        role: userProfile.role
       },
-      token
+      token,
+      customToken
     }, "Login successful");
 
   } catch (error) {
-    console.error("Login error:", error);
-    sendResponse(res, 500, false, null, null, "Internal server error during login");
+    console.error('❌ Login error:', error);
+    
+    if (error.code === 'auth/user-not-found') {
+      return sendResponse(res, 404, false, null, null, "User not found");
+    }
+    
+    sendResponse(res, 500, false, null, null, "Login failed", error.message);
   }
 });
 
-// POST /auth/google - Google OAuth Login with real Firebase integration
-router.post("/google", [
-  body("idToken").notEmpty().withMessage("Google ID token is required")
+// POST /auth/google - Google OAuth login/register
+router.post('/google', [
+  body('idToken').notEmpty().withMessage('Google ID token is required')
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return sendResponse(res, 400, false, null, "Validation failed", "Invalid input data", errors.array());
+      return sendResponse(res, 400, false, null, null, "Validation failed", errors.array());
     }
 
     const { idToken } = req.body;
 
-    console.log(`👤 Google login attempt`);
+    console.log('🔐 Google OAuth login attempt');
 
-    // For development, we'll create a mock Google user
-    // In production, you would verify the Google ID token
-    const mockGoogleUser = {
-      uid: 'google-' + Date.now(),
-      email: 'user@gmail.com',
-      name: 'Google User',
-      email_verified: true,
-      picture: 'https://via.placeholder.com/150'
-    };
+    // Verify Google ID token
+    const decodedToken = await firebaseAuth.verifyIdToken(idToken);
+    const { uid, email, name, picture, email_verified } = decodedToken;
 
-    const { uid, email } = mockGoogleUser;
+    console.log(`✅ Google token verified for: ${email}`);
 
-    // Check if user exists
-    let userDoc = await db.collection("users").where("email", "==", email).get();
-    let userData;
+    // Check if user profile exists in Firestore
+    let userDoc = await db.collection('users').doc(uid).get();
+    let userProfile;
 
-    if (userDoc.empty) {
-      // Create new user
-      const newUserData = {
-        uid,
+    if (!userDoc.exists) {
+      // Create new user profile
+      console.log(`👤 Creating new Google user profile: ${email}`);
+      
+      userProfile = await createUserProfile(uid, {
         email,
-        firstName: mockGoogleUser.name?.split(' ')[0] || "Google",
-        lastName: mockGoogleUser.name?.split(' ').slice(1).join(' ') || "User",
-        phoneNumber: "",
-        role: "customer",
-        isActive: true,
-        emailVerified: mockGoogleUser.email_verified || false,
-        authProvider: "google",
-        profilePicture: mockGoogleUser.picture || "",
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        lastLogin: admin.firestore.FieldValue.serverTimestamp(),
-        preferences: { 
-          newsletter: true, 
-          notifications: true,
-          language: "en",
-          currency: "INR"
-        },
-        addresses: [],
-        orderHistory: [],
-        wishlist: [],
-        cart: []
-      };
-
-      await db.collection("users").doc(uid).set(newUserData);
-      userData = newUserData;
-      
-      console.log(`✅ New Google user created: ${email}`);
-    } else {
-      // Update existing user
-      userData = userDoc.docs[0].data();
-      
-      await db.collection("users").doc(userData.uid).update({
-        lastLogin: admin.firestore.FieldValue.serverTimestamp(),
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        emailVerified: true // Google users are email verified
+        displayName: name,
+        photoURL: picture,
+        emailVerified: email_verified,
+        provider: 'google'
       });
+    } else {
+      userProfile = userDoc.data();
       
-      console.log(`✅ Existing Google user logged in: ${email}`);
+      // Update last login time
+      await db.collection('users').doc(uid).update({
+        lastLoginAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+      });
+    }
+
+    // Check if user is active
+    if (!userProfile.isActive) {
+      return sendResponse(res, 403, false, null, null, "Account is deactivated");
     }
 
     // Generate JWT token
-    const token = generateToken(userData);
+    const token = generateJWT({
+      uid,
+      email,
+      emailVerified: email_verified,
+      role: userProfile.role
+    });
+
+    // Update real-time analytics
+    await realtimeDb.ref('analytics/googleLogins').transaction((current) => {
+      return (current || 0) + 1;
+    });
 
     sendResponse(res, 200, true, {
       user: {
-        uid: userData.uid,
-        email: userData.email,
-        firstName: userData.firstName,
-        lastName: userData.lastName,
-        phoneNumber: userData.phoneNumber,
-        role: userData.role,
-        emailVerified: userData.emailVerified,
-        authProvider: userData.authProvider,
-        profilePicture: userData.profilePicture,
-        preferences: userData.preferences
+        uid,
+        email,
+        displayName: userProfile.displayName,
+        photoURL: userProfile.photoURL,
+        emailVerified: email_verified,
+        role: userProfile.role
       },
-      token
-    }, "Google login successful");
+      token,
+      isNewUser: !userDoc.exists
+    }, userDoc.exists ? "Login successful" : "Account created and logged in successfully");
 
   } catch (error) {
-    console.error("Google login error:", error);
-    sendResponse(res, 500, false, null, null, "Internal server error during Google login");
+    console.error('❌ Google OAuth error:', error);
+    sendResponse(res, 500, false, null, null, "Google authentication failed", error.message);
   }
 });
 
-// GET /auth/verify - Verify JWT Token
-router.get("/verify", async (req, res) => {
+// POST /auth/logout - Logout user
+router.post('/logout', async (req, res) => {
   try {
-    const token = req.headers.authorization?.replace("Bearer ", "") || req.cookies?.token;
-
-    if (!token) {
-      return sendResponse(res, 401, false, null, null, "No token provided");
-    }
-
-    let decoded;
-    try {
-      decoded = jwt.verify(token, process.env.JWT_SECRET);
-    } catch (jwtError) {
-      console.error("JWT verification error:", jwtError.message);
-      
-      if (jwtError.name === 'JsonWebTokenError') {
-        return sendResponse(res, 401, false, null, null, "Invalid token");
-      }
-      if (jwtError.name === 'TokenExpiredError') {
-        return sendResponse(res, 401, false, null, null, "Token expired");
-      }
-      
-      return sendResponse(res, 401, false, null, null, "Token verification failed");
-    }
+    const authHeader = req.headers.authorization;
     
-    // Get user data from database
-    const userDoc = await db.collection("users").doc(decoded.uid).get();
-
-    if (!userDoc.exists) {
-      return sendResponse(res, 401, false, null, null, "User not found");
-    }
-
-    const userData = userDoc.data();
-
-    if (!userData.isActive) {
-      return sendResponse(res, 403, false, null, null, "Account disabled");
-    }
-
-    sendResponse(res, 200, true, {
-      user: {
-        uid: userData.uid,
-        email: userData.email,
-        firstName: userData.firstName,
-        lastName: userData.lastName,
-        phoneNumber: userData.phoneNumber,
-        role: userData.role,
-        emailVerified: userData.emailVerified,
-        preferences: userData.preferences
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const token = authHeader.substring(7);
+      
+      try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
+        
+        // Update last logout time
+        await db.collection('users').doc(decoded.uid).update({
+          lastLogoutAt: admin.firestore.FieldValue.serverTimestamp(),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+        
+        console.log(`👋 User logged out: ${decoded.email}`);
+      } catch (jwtError) {
+        console.warn('⚠️ Invalid JWT token during logout');
       }
-    }, "Token verified successfully");
+    }
 
-  } catch (error) {
-    console.error("Token verification error:", error);
-    sendResponse(res, 500, false, null, null, "Internal server error during token verification");
-  }
-});
-
-// POST /auth/logout - User Logout
-router.post("/logout", async (req, res) => {
-  try {
-    // Clear cookie if it exists
-    res.clearCookie('token');
-    
     sendResponse(res, 200, true, null, "Logout successful");
+
   } catch (error) {
-    console.error("Logout error:", error);
-    sendResponse(res, 500, false, null, null, "Internal server error during logout");
+    console.error('❌ Logout error:', error);
+    sendResponse(res, 500, false, null, null, "Logout failed", error.message);
   }
 });
 
-// POST /auth/refresh - Refresh Token
-router.post("/refresh", async (req, res) => {
+// GET /auth/me - Get current user profile
+router.get('/me', async (req, res) => {
   try {
-    const token = req.headers.authorization?.replace("Bearer ", "") || req.cookies?.token;
-
-    if (!token) {
+    const authHeader = req.headers.authorization;
+    
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return sendResponse(res, 401, false, null, null, "No token provided");
     }
 
-    let decoded;
-    try {
-      decoded = jwt.verify(token, process.env.JWT_SECRET);
-    } catch (jwtError) {
-      if (jwtError.name === 'JsonWebTokenError') {
-        return sendResponse(res, 401, false, null, null, "Invalid token");
-      }
-      if (jwtError.name === 'TokenExpiredError') {
-        return sendResponse(res, 401, false, null, null, "Token expired");
-      }
-      return sendResponse(res, 401, false, null, null, "Token verification failed");
-    }
+    const token = authHeader.substring(7);
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
+
+    // Get user profile from Firestore
+    const userDoc = await db.collection('users').doc(decoded.uid).get();
     
-    // Get user data from database
-    const userDoc = await db.collection("users").doc(decoded.uid).get();
-
     if (!userDoc.exists) {
-      return sendResponse(res, 401, false, null, null, "User not found");
+      return sendResponse(res, 404, false, null, null, "User profile not found");
     }
 
-    const userData = userDoc.data();
-
-    if (!userData.isActive) {
-      return sendResponse(res, 403, false, null, null, "Account disabled");
-    }
-
-    const newToken = generateToken(userData);
+    const userProfile = userDoc.data();
 
     sendResponse(res, 200, true, {
       user: {
-        uid: userData.uid,
-        email: userData.email,
-        firstName: userData.firstName,
-        lastName: userData.lastName,
-        phoneNumber: userData.phoneNumber,
-        role: userData.role,
-        emailVerified: userData.emailVerified,
-        preferences: userData.preferences
-      },
-      token: newToken
-    }, "Token refreshed successfully");
+        uid: userProfile.uid,
+        email: userProfile.email,
+        displayName: userProfile.displayName,
+        photoURL: userProfile.photoURL,
+        emailVerified: userProfile.emailVerified,
+        role: userProfile.role,
+        profile: userProfile.profile
+      }
+    }, "User profile retrieved successfully");
 
   } catch (error) {
-    console.error("Token refresh error:", error);
-    sendResponse(res, 500, false, null, null, "Internal server error during token refresh");
+    console.error('❌ Get user profile error:', error);
+    
+    if (error.name === 'JsonWebTokenError') {
+      return sendResponse(res, 401, false, null, null, "Invalid token");
+    }
+    
+    sendResponse(res, 500, false, null, null, "Failed to get user profile", error.message);
   }
 });
 
-// POST /auth/forgot-password - Forgot Password
-router.post("/forgot-password", [
-  body("email").isEmail().normalizeEmail().withMessage("Valid email is required")
+// PUT /auth/profile - Update user profile
+router.put('/profile', [
+  body('firstName').optional().notEmpty().withMessage('First name cannot be empty'),
+  body('lastName').optional().notEmpty().withMessage('Last name cannot be empty'),
+  body('phone').optional().isMobilePhone().withMessage('Valid phone number required')
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return sendResponse(res, 400, false, null, "Validation failed", "Invalid input data", errors.array());
+      return sendResponse(res, 400, false, null, null, "Validation failed", errors.array());
+    }
+
+    const authHeader = req.headers.authorization;
+    
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return sendResponse(res, 401, false, null, null, "No token provided");
+    }
+
+    const token = authHeader.substring(7);
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
+
+    const { firstName, lastName, phone, address, preferences } = req.body;
+
+    const updateData = {
+      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    };
+
+    if (firstName || lastName) {
+      updateData.displayName = `${firstName || ''} ${lastName || ''}`.trim();
+      updateData['profile.firstName'] = firstName;
+      updateData['profile.lastName'] = lastName;
+    }
+
+    if (phone) updateData['profile.phone'] = phone;
+    if (address) updateData['profile.address'] = address;
+    if (preferences) updateData['profile.preferences'] = preferences;
+
+    await db.collection('users').doc(decoded.uid).update(updateData);
+
+    // Also update Firebase Auth display name if changed
+    if (updateData.displayName) {
+      await firebaseAuth.updateUser(decoded.uid, {
+        displayName: updateData.displayName
+      });
+    }
+
+    sendResponse(res, 200, true, updateData, "Profile updated successfully");
+
+  } catch (error) {
+    console.error('❌ Update profile error:', error);
+    
+    if (error.name === 'JsonWebTokenError') {
+      return sendResponse(res, 401, false, null, null, "Invalid token");
+    }
+    
+    sendResponse(res, 500, false, null, null, "Failed to update profile", error.message);
+  }
+});
+
+// POST /auth/forgot-password - Send password reset email
+router.post('/forgot-password', [
+  body('email').isEmail().withMessage('Valid email is required')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return sendResponse(res, 400, false, null, null, "Validation failed", errors.array());
     }
 
     const { email } = req.body;
 
-    console.log(`🔐 Password reset request for: ${email}`);
-
     // Check if user exists
-    const userQuery = await db.collection("users").where("email", "==", email).get();
+    const userRecord = await firebaseAuth.getUserByEmail(email);
     
-    if (userQuery.empty) {
+    // In production, you'd send actual password reset email
+    // For now, we'll just log it
+    console.log(`📧 Password reset email would be sent to: ${email}`);
+
+    sendResponse(res, 200, true, null, "Password reset email sent successfully");
+
+  } catch (error) {
+    console.error('❌ Forgot password error:', error);
+    
+    if (error.code === 'auth/user-not-found') {
       // Don't reveal if email exists or not for security
       return sendResponse(res, 200, true, null, "If the email exists, a password reset link has been sent");
     }
-
-    // In production, you would send an actual email with reset link
-    // For development, we'll just log it
-    console.log(`📧 Password reset email would be sent to: ${email}`);
-
-    sendResponse(res, 200, true, null, "If the email exists, a password reset link has been sent");
-
-  } catch (error) {
-    console.error("Forgot password error:", error);
-    sendResponse(res, 500, false, null, null, "Internal server error during password reset");
+    
+    sendResponse(res, 500, false, null, null, "Failed to send password reset email", error.message);
   }
 });
 
-// POST /auth/reset-password - Reset Password
-router.post("/reset-password", [
-  body("token").notEmpty().withMessage("Reset token is required"),
-  body("newPassword").isLength({ min: 6 }).withMessage("Password must be at least 6 characters")
+// POST /auth/verify-email - Verify email address
+router.post('/verify-email', [
+  body('token').notEmpty().withMessage('Verification token is required')
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return sendResponse(res, 400, false, null, "Validation failed", "Invalid input data", errors.array());
+      return sendResponse(res, 400, false, null, null, "Validation failed", errors.array());
     }
 
-    const { token, newPassword } = req.body;
+    const { token } = req.body;
 
-    console.log(`🔐 Password reset attempt with token`);
+    // In production, you'd verify the actual email verification token
+    // For now, we'll simulate email verification
+    console.log(`✅ Email verification simulated for token: ${token}`);
 
-    // In production, you would verify the reset token and update the password
-    // For development, we'll just return success
-    
-    sendResponse(res, 200, true, null, "Password reset successful");
+    sendResponse(res, 200, true, null, "Email verified successfully");
 
   } catch (error) {
-    console.error("Reset password error:", error);
-    sendResponse(res, 500, false, null, null, "Internal server error during password reset");
+    console.error('❌ Email verification error:', error);
+    sendResponse(res, 500, false, null, null, "Email verification failed", error.message);
   }
 });
 

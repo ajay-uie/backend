@@ -1,7 +1,7 @@
 const express = require('express');
 const { body, validationResult } = require('express-validator');
 const { db, admin } = require('../auth/firebaseConfig');
-const { authMiddleware, adminMiddleware } = require('../middleware/auth');
+const { adminMiddleware } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -16,70 +16,42 @@ const sendResponse = (res, statusCode, success, data = null, message = null, err
   res.status(statusCode).json(response);
 };
 
-// Helper: Create default settings if none exist
+// Helper: Ensure default settings exist
 const ensureDefaultSettings = async () => {
   try {
-    const settingsDoc = await db.collection('settings').doc('general').get();
+    const settingsDoc = await db.collection('settings').doc('site-settings').get();
     
     if (!settingsDoc.exists) {
       console.log('⚙️ No settings found, creating default settings...');
       
       const defaultSettings = {
         siteName: 'Fragransia',
-        siteDescription: 'Premium fragrances and perfumes',
-        siteUrl: 'https://www.fragransia.in',
-        contactEmail: 'admin@fragransia.in',
-        supportEmail: 'support@fragransia.in',
-        phoneNumber: '+91-9876543210',
-        address: {
-          street: '123 Fragrance Street',
-          city: 'Mumbai',
-          state: 'Maharashtra',
-          country: 'India',
-          zipCode: '400001'
-        },
+        siteDescription: 'Premium Fragrances for Every Occasion',
+        currency: 'INR',
+        shippingFee: 99,
+        freeShippingThreshold: 2000,
+        taxRate: 18,
+        contactEmail: 'contact@fragransia.com',
+        supportPhone: '+91 9876543210',
+        address: 'Mumbai, Maharashtra, India',
         socialMedia: {
-          facebook: 'https://facebook.com/fragransia',
-          instagram: 'https://instagram.com/fragransia',
-          twitter: 'https://twitter.com/fragransia',
-          youtube: 'https://youtube.com/fragransia'
+          facebook: '',
+          instagram: '',
+          twitter: '',
+          youtube: ''
         },
-        businessHours: {
-          monday: '9:00 AM - 6:00 PM',
-          tuesday: '9:00 AM - 6:00 PM',
-          wednesday: '9:00 AM - 6:00 PM',
-          thursday: '9:00 AM - 6:00 PM',
-          friday: '9:00 AM - 6:00 PM',
-          saturday: '10:00 AM - 4:00 PM',
-          sunday: 'Closed'
+        paymentMethods: ['razorpay', 'cod'],
+        features: {
+          wishlist: true,
+          reviews: true,
+          coupons: true,
+          notifications: true
         },
-        shipping: {
-          freeShippingThreshold: 500,
-          standardShippingCost: 50,
-          expressShippingCost: 100,
-          estimatedDeliveryDays: '3-5 business days'
-        },
-        payment: {
-          acceptedMethods: ['Credit Card', 'Debit Card', 'UPI', 'Net Banking', 'COD'],
-          codAvailable: true,
-          codCharges: 25
-        },
-        notifications: {
-          emailNotifications: true,
-          smsNotifications: true,
-          pushNotifications: true,
-          orderUpdates: true,
-          promotionalEmails: true
-        },
-        maintenance: {
-          isMaintenanceMode: false,
-          maintenanceMessage: 'We are currently performing scheduled maintenance. Please check back soon.'
-        },
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        createdAt: admin.firestore ? admin.firestore.FieldValue.serverTimestamp() : new Date(),
+        updatedAt: admin.firestore ? admin.firestore.FieldValue.serverTimestamp() : new Date()
       };
-
-      await db.collection('settings').doc('general').set(defaultSettings);
+      
+      await db.collection('settings').doc('site-settings').set(defaultSettings);
       console.log('✅ Default settings created successfully');
     }
   } catch (error) {
@@ -90,206 +62,108 @@ const ensureDefaultSettings = async () => {
 // Initialize default settings on module load
 ensureDefaultSettings();
 
-// GET /admin/settings - Get all settings
-router.get('/', authMiddleware, adminMiddleware, async (req, res) => {
+// GET /api/admin/settings - Get all settings
+router.get('/', adminMiddleware, async (req, res) => {
   try {
-    console.log('⚙️ Admin fetching settings...');
-
-    const settingsDoc = await db.collection('settings').doc('general').get();
-
+    const settingsDoc = await db.collection('settings').doc('site-settings').get();
+    
     if (!settingsDoc.exists) {
-      return sendResponse(res, 404, false, null, null, "Settings not found");
+      await ensureDefaultSettings();
+      const newSettingsDoc = await db.collection('settings').doc('site-settings').get();
+      const settings = newSettingsDoc.data();
+      return sendResponse(res, 200, true, settings, "Settings retrieved successfully");
     }
-
-    const settingsData = settingsDoc.data();
-
-    console.log('✅ Admin settings fetched successfully');
-
-    sendResponse(res, 200, true, {
-      settings: {
-        ...settingsData,
-        createdAt: settingsData.createdAt?.toDate(),
-        updatedAt: settingsData.updatedAt?.toDate()
-      }
-    }, "Settings fetched successfully");
-
+    
+    const settings = settingsDoc.data();
+    sendResponse(res, 200, true, settings, "Settings retrieved successfully");
+    
   } catch (error) {
-    console.error('❌ Admin get settings error:', error);
-    sendResponse(res, 500, false, null, null, "Failed to fetch settings", error.message);
+    console.error('❌ Get settings error:', error);
+    sendResponse(res, 500, false, null, null, "Failed to retrieve settings", error.message);
   }
 });
 
-// PUT /admin/settings - Update settings
-router.put('/', authMiddleware, adminMiddleware, [
+// PUT /api/admin/settings - Update settings
+router.put('/', [
+  adminMiddleware,
   body('siteName').optional().notEmpty().withMessage('Site name cannot be empty'),
-  body('contactEmail').optional().isEmail().withMessage('Valid contact email is required'),
-  body('supportEmail').optional().isEmail().withMessage('Valid support email is required')
+  body('currency').optional().notEmpty().withMessage('Currency cannot be empty'),
+  body('shippingFee').optional().isNumeric().withMessage('Shipping fee must be a number'),
+  body('freeShippingThreshold').optional().isNumeric().withMessage('Free shipping threshold must be a number')
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return sendResponse(res, 400, false, null, "Validation failed", "Invalid input data", errors.array());
+      return sendResponse(res, 400, false, null, null, "Validation failed", errors.array());
     }
-
-    console.log('⚙️ Admin updating settings...');
 
     const updateData = {
       ...req.body,
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      updatedBy: req.user.uid
+      updatedAt: admin.firestore ? admin.firestore.FieldValue.serverTimestamp() : new Date()
     };
 
-    await db.collection('settings').doc('general').update(updateData);
+    await db.collection('settings').doc('site-settings').update(updateData);
 
-    const updatedDoc = await db.collection('settings').doc('general').get();
-    const updatedData = updatedDoc.data();
-
-    console.log('✅ Admin settings updated successfully');
-
-    sendResponse(res, 200, true, {
-      settings: {
-        ...updatedData,
-        createdAt: updatedData.createdAt?.toDate(),
-        updatedAt: updatedData.updatedAt?.toDate()
-      }
-    }, "Settings updated successfully");
+    sendResponse(res, 200, true, updateData, "Settings updated successfully");
 
   } catch (error) {
-    console.error('❌ Admin update settings error:', error);
+    console.error('❌ Update settings error:', error);
     sendResponse(res, 500, false, null, null, "Failed to update settings", error.message);
   }
 });
 
-// GET /admin/settings/maintenance - Get maintenance mode status
-router.get('/maintenance', authMiddleware, adminMiddleware, async (req, res) => {
+// GET /api/admin/settings/shipping - Get shipping settings
+router.get('/shipping', adminMiddleware, async (req, res) => {
   try {
-    console.log('⚙️ Admin fetching maintenance status...');
-
-    const settingsDoc = await db.collection('settings').doc('general').get();
-
+    const settingsDoc = await db.collection('settings').doc('site-settings').get();
+    
     if (!settingsDoc.exists) {
       return sendResponse(res, 404, false, null, null, "Settings not found");
     }
+    
+    const settings = settingsDoc.data();
+    const shippingSettings = {
+      shippingFee: settings.shippingFee || 99,
+      freeShippingThreshold: settings.freeShippingThreshold || 2000,
+      shippingZones: settings.shippingZones || []
+    };
+    
+    sendResponse(res, 200, true, shippingSettings, "Shipping settings retrieved successfully");
+    
+  } catch (error) {
+    console.error('❌ Get shipping settings error:', error);
+    sendResponse(res, 500, false, null, null, "Failed to retrieve shipping settings", error.message);
+  }
+});
 
-    const settingsData = settingsDoc.data();
-    const maintenanceData = settingsData.maintenance || {
-      isMaintenanceMode: false,
-      maintenanceMessage: 'We are currently performing scheduled maintenance. Please check back soon.'
+// PUT /api/admin/settings/shipping - Update shipping settings
+router.put('/shipping', [
+  adminMiddleware,
+  body('shippingFee').isNumeric().withMessage('Shipping fee must be a number'),
+  body('freeShippingThreshold').isNumeric().withMessage('Free shipping threshold must be a number')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return sendResponse(res, 400, false, null, null, "Validation failed", errors.array());
+    }
+
+    const { shippingFee, freeShippingThreshold, shippingZones } = req.body;
+    
+    const updateData = {
+      shippingFee,
+      freeShippingThreshold,
+      shippingZones: shippingZones || [],
+      updatedAt: admin.firestore ? admin.firestore.FieldValue.serverTimestamp() : new Date()
     };
 
-    console.log('✅ Admin maintenance status fetched successfully');
+    await db.collection('settings').doc('site-settings').update(updateData);
 
-    sendResponse(res, 200, true, { maintenance: maintenanceData }, "Maintenance status fetched successfully");
-
-  } catch (error) {
-    console.error('❌ Admin get maintenance status error:', error);
-    sendResponse(res, 500, false, null, null, "Failed to fetch maintenance status", error.message);
-  }
-});
-
-// POST /admin/settings/maintenance/toggle - Toggle maintenance mode
-router.post('/maintenance/toggle', authMiddleware, adminMiddleware, async (req, res) => {
-  try {
-    console.log('⚙️ Admin toggling maintenance mode...');
-
-    const settingsDoc = await db.collection('settings').doc('general').get();
-
-    if (!settingsDoc.exists) {
-      return sendResponse(res, 404, false, null, null, "Settings not found");
-    }
-
-    const settingsData = settingsDoc.data();
-    const currentMaintenanceMode = settingsData.maintenance?.isMaintenanceMode || false;
-    const newMaintenanceMode = !currentMaintenanceMode;
-
-    await db.collection('settings').doc('general').update({
-      'maintenance.isMaintenanceMode': newMaintenanceMode,
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      updatedBy: req.user.uid
-    });
-
-    console.log(`✅ Admin maintenance mode toggled: ${currentMaintenanceMode} → ${newMaintenanceMode}`);
-
-    sendResponse(res, 200, true, {
-      maintenance: {
-        isMaintenanceMode: newMaintenanceMode,
-        message: `Maintenance mode ${newMaintenanceMode ? 'enabled' : 'disabled'}`
-      }
-    }, `Maintenance mode ${newMaintenanceMode ? 'enabled' : 'disabled'} successfully`);
+    sendResponse(res, 200, true, updateData, "Shipping settings updated successfully");
 
   } catch (error) {
-    console.error('❌ Admin toggle maintenance mode error:', error);
-    sendResponse(res, 500, false, null, null, "Failed to toggle maintenance mode", error.message);
-  }
-});
-
-// GET /admin/settings/backup - Create settings backup
-router.get('/backup', authMiddleware, adminMiddleware, async (req, res) => {
-  try {
-    console.log('⚙️ Admin creating settings backup...');
-
-    const settingsDoc = await db.collection('settings').doc('general').get();
-
-    if (!settingsDoc.exists) {
-      return sendResponse(res, 404, false, null, null, "Settings not found");
-    }
-
-    const settingsData = settingsDoc.data();
-    const backupData = {
-      ...settingsData,
-      backupCreatedAt: new Date().toISOString(),
-      backupCreatedBy: req.user.uid
-    };
-
-    // Store backup
-    await db.collection('settings_backups').add(backupData);
-
-    console.log('✅ Admin settings backup created successfully');
-
-    sendResponse(res, 200, true, { backup: backupData }, "Settings backup created successfully");
-
-  } catch (error) {
-    console.error('❌ Admin create settings backup error:', error);
-    sendResponse(res, 500, false, null, null, "Failed to create settings backup", error.message);
-  }
-});
-
-// POST /admin/settings/reset - Reset settings to default
-router.post('/reset', authMiddleware, adminMiddleware, async (req, res) => {
-  try {
-    console.log('⚙️ Admin resetting settings to default...');
-
-    // Create backup before reset
-    const currentSettingsDoc = await db.collection('settings').doc('general').get();
-    if (currentSettingsDoc.exists) {
-      const backupData = {
-        ...currentSettingsDoc.data(),
-        backupCreatedAt: new Date().toISOString(),
-        backupCreatedBy: req.user.uid,
-        backupReason: 'Before reset to default'
-      };
-      await db.collection('settings_backups').add(backupData);
-    }
-
-    // Reset to default settings
-    await ensureDefaultSettings();
-
-    const resetSettingsDoc = await db.collection('settings').doc('general').get();
-    const resetSettingsData = resetSettingsDoc.data();
-
-    console.log('✅ Admin settings reset to default successfully');
-
-    sendResponse(res, 200, true, {
-      settings: {
-        ...resetSettingsData,
-        createdAt: resetSettingsData.createdAt?.toDate(),
-        updatedAt: resetSettingsData.updatedAt?.toDate()
-      }
-    }, "Settings reset to default successfully");
-
-  } catch (error) {
-    console.error('❌ Admin reset settings error:', error);
-    sendResponse(res, 500, false, null, null, "Failed to reset settings", error.message);
+    console.error('❌ Update shipping settings error:', error);
+    sendResponse(res, 500, false, null, null, "Failed to update shipping settings", error.message);
   }
 });
 

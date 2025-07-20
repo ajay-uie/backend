@@ -1,6 +1,6 @@
 const express = require('express');
-const { db, admin } = require('../auth/firebaseConfig');
-const { authMiddleware, adminMiddleware } = require('../middleware/auth');
+const { db } = require('../auth/firebaseConfig');
+const { adminMiddleware } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -15,260 +15,94 @@ const sendResponse = (res, statusCode, success, data = null, message = null, err
   res.status(statusCode).json(response);
 };
 
-// GET /admin/signals - Get system signals and alerts
-router.get('/', authMiddleware, adminMiddleware, async (req, res) => {
+// GET /api/admin/signals - Get system signals/notifications
+router.get('/', adminMiddleware, async (req, res) => {
   try {
-    console.log('🚨 Admin fetching system signals...');
-
-    // Get various system signals
-    const [
-      lowStockProducts,
-      pendingOrders,
-      recentErrors,
-      systemHealth
-    ] = await Promise.all([
-      // Low stock products
-      db.collection('products')
-        .where('stock', '<=', 10)
-        .where('isActive', '==', true)
-        .get(),
-      
-      // Pending orders
-      db.collection('orders')
-        .where('status', '==', 'pending')
-        .orderBy('createdAt', 'desc')
-        .limit(10)
-        .get(),
-      
-      // Recent errors (mock data for now)
-      Promise.resolve([]),
-      
-      // System health check
-      Promise.resolve({
-        database: 'healthy',
-        storage: 'healthy',
-        api: 'healthy'
-      })
-    ]);
-
-    // Process low stock products
-    const lowStockData = [];
-    lowStockProducts.forEach(doc => {
-      const productData = doc.data();
-      lowStockData.push({
-        id: doc.id,
-        name: productData.name,
-        stock: productData.stock,
-        category: productData.category,
-        price: productData.price
-      });
-    });
-
-    // Process pending orders
-    const pendingOrdersData = [];
-    pendingOrders.forEach(doc => {
-      const orderData = doc.data();
-      pendingOrdersData.push({
-        id: doc.id,
-        customerName: orderData.customerName || 'Unknown',
-        total: orderData.total || 0,
-        createdAt: orderData.createdAt?.toDate(),
-        status: orderData.status
-      });
-    });
-
-    // Mock recent errors
-    const recentErrorsData = [
+    // Mock signals data - replace with actual system monitoring
+    const signals = [
       {
-        id: 'error_1',
-        type: 'API_ERROR',
-        message: 'Payment gateway timeout',
-        timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000), // 2 hours ago
-        severity: 'medium',
-        resolved: false
+        id: 'signal-1',
+        type: 'info',
+        title: 'System Status',
+        message: 'All systems operational',
+        timestamp: new Date(),
+        read: false
       },
       {
-        id: 'error_2',
-        type: 'DATABASE_WARNING',
-        message: 'High query response time detected',
-        timestamp: new Date(Date.now() - 6 * 60 * 60 * 1000), // 6 hours ago
-        severity: 'low',
-        resolved: true
+        id: 'signal-2',
+        type: 'warning',
+        title: 'Low Stock Alert',
+        message: '3 products are running low on stock',
+        timestamp: new Date(Date.now() - 3600000), // 1 hour ago
+        read: false
+      },
+      {
+        id: 'signal-3',
+        type: 'success',
+        title: 'New Order',
+        message: 'Order #12345 has been placed',
+        timestamp: new Date(Date.now() - 7200000), // 2 hours ago
+        read: true
       }
     ];
-
-    // Generate alerts based on signals
-    const alerts = [];
-
-    if (lowStockData.length > 0) {
-      alerts.push({
-        type: 'LOW_STOCK',
-        severity: 'high',
-        message: `${lowStockData.length} products are running low on stock`,
-        count: lowStockData.length,
-        action: 'Restock products immediately'
-      });
-    }
-
-    if (pendingOrdersData.length > 5) {
-      alerts.push({
-        type: 'PENDING_ORDERS',
-        severity: 'medium',
-        message: `${pendingOrdersData.length} orders are pending processing`,
-        count: pendingOrdersData.length,
-        action: 'Process pending orders'
-      });
-    }
-
-    if (recentErrorsData.filter(e => !e.resolved).length > 0) {
-      alerts.push({
-        type: 'SYSTEM_ERRORS',
-        severity: 'high',
-        message: 'Unresolved system errors detected',
-        count: recentErrorsData.filter(e => !e.resolved).length,
-        action: 'Review and resolve system errors'
-      });
-    }
-
-    const signalsData = {
-      alerts,
-      lowStockProducts: lowStockData,
-      pendingOrders: pendingOrdersData,
-      recentErrors: recentErrorsData,
-      systemHealth,
-      summary: {
-        totalAlerts: alerts.length,
-        criticalAlerts: alerts.filter(a => a.severity === 'high').length,
-        lowStockCount: lowStockData.length,
-        pendingOrdersCount: pendingOrdersData.length,
-        unresolvedErrorsCount: recentErrorsData.filter(e => !e.resolved).length
-      }
-    };
-
-    console.log(`✅ Admin system signals fetched: ${alerts.length} alerts found`);
-
-    sendResponse(res, 200, true, signalsData, "System signals fetched successfully");
-
+    
+    sendResponse(res, 200, true, signals, "Signals retrieved successfully");
+    
   } catch (error) {
-    console.error('❌ Admin get signals error:', error);
-    sendResponse(res, 500, false, null, null, "Failed to fetch system signals", error.message);
+    console.error('❌ Get signals error:', error);
+    sendResponse(res, 500, false, null, null, "Failed to retrieve signals", error.message);
   }
 });
 
-// GET /admin/signals/alerts - Get only alerts
-router.get('/alerts', authMiddleware, adminMiddleware, async (req, res) => {
-  try {
-    console.log('🚨 Admin fetching alerts only...');
-
-    // Get critical system data for alerts
-    const [lowStockCount, pendingOrdersCount] = await Promise.all([
-      db.collection('products')
-        .where('stock', '<=', 10)
-        .where('isActive', '==', true)
-        .get()
-        .then(snapshot => snapshot.size),
-      
-      db.collection('orders')
-        .where('status', '==', 'pending')
-        .get()
-        .then(snapshot => snapshot.size)
-    ]);
-
-    const alerts = [];
-
-    if (lowStockCount > 0) {
-      alerts.push({
-        id: 'low_stock_alert',
-        type: 'LOW_STOCK',
-        severity: 'high',
-        message: `${lowStockCount} products are running low on stock`,
-        count: lowStockCount,
-        action: 'Restock products immediately',
-        timestamp: new Date()
-      });
-    }
-
-    if (pendingOrdersCount > 5) {
-      alerts.push({
-        id: 'pending_orders_alert',
-        type: 'PENDING_ORDERS',
-        severity: 'medium',
-        message: `${pendingOrdersCount} orders are pending processing`,
-        count: pendingOrdersCount,
-        action: 'Process pending orders',
-        timestamp: new Date()
-      });
-    }
-
-    console.log(`✅ Admin alerts fetched: ${alerts.length} alerts`);
-
-    sendResponse(res, 200, true, { alerts }, "Alerts fetched successfully");
-
-  } catch (error) {
-    console.error('❌ Admin get alerts error:', error);
-    sendResponse(res, 500, false, null, null, "Failed to fetch alerts", error.message);
-  }
-});
-
-// POST /admin/signals/alerts/:id/dismiss - Dismiss an alert
-router.post('/alerts/:id/dismiss', authMiddleware, adminMiddleware, async (req, res) => {
+// POST /api/admin/signals/:id/read - Mark signal as read
+router.post('/:id/read', adminMiddleware, async (req, res) => {
   try {
     const { id } = req.params;
-
-    console.log(`🚨 Admin dismissing alert: ${id}`);
-
-    // In a real implementation, you would store dismissed alerts
-    // For now, we'll just acknowledge the dismissal
-
-    console.log(`✅ Admin alert dismissed: ${id}`);
-
-    sendResponse(res, 200, true, {
-      alertId: id,
-      dismissedAt: new Date(),
-      dismissedBy: req.user.uid
-    }, "Alert dismissed successfully");
-
+    
+    // Mock implementation - in real app, update signal in database
+    sendResponse(res, 200, true, { id, read: true }, "Signal marked as read");
+    
   } catch (error) {
-    console.error('❌ Admin dismiss alert error:', error);
-    sendResponse(res, 500, false, null, null, "Failed to dismiss alert", error.message);
+    console.error('❌ Mark signal read error:', error);
+    sendResponse(res, 500, false, null, null, "Failed to mark signal as read", error.message);
   }
 });
 
-// GET /admin/signals/health - Get system health status
-router.get('/health', authMiddleware, adminMiddleware, async (req, res) => {
+// DELETE /api/admin/signals/:id - Delete signal
+router.delete('/:id', adminMiddleware, async (req, res) => {
   try {
-    console.log('🏥 Admin checking system health...');
-
-    // Perform health checks
-    const healthChecks = {
-      database: 'healthy',
-      storage: 'healthy',
-      api: 'healthy',
-      memory: 'healthy',
-      disk: 'healthy'
-    };
-
-    // Mock some health data
-    const healthData = {
-      status: 'healthy',
-      checks: healthChecks,
-      uptime: process.uptime(),
-      timestamp: new Date(),
-      metrics: {
-        memoryUsage: process.memoryUsage(),
-        cpuUsage: process.cpuUsage(),
-        nodeVersion: process.version,
-        platform: process.platform
-      }
-    };
-
-    console.log('✅ Admin system health checked successfully');
-
-    sendResponse(res, 200, true, healthData, "System health checked successfully");
-
+    const { id } = req.params;
+    
+    // Mock implementation - in real app, delete signal from database
+    sendResponse(res, 200, true, { id }, "Signal deleted successfully");
+    
   } catch (error) {
-    console.error('❌ Admin health check error:', error);
-    sendResponse(res, 500, false, null, null, "Failed to check system health", error.message);
+    console.error('❌ Delete signal error:', error);
+    sendResponse(res, 500, false, null, null, "Failed to delete signal", error.message);
+  }
+});
+
+// GET /api/admin/signals/stats - Get signal statistics
+router.get('/stats', adminMiddleware, async (req, res) => {
+  try {
+    // Mock statistics - replace with actual data
+    const stats = {
+      total: 15,
+      unread: 3,
+      byType: {
+        info: 8,
+        warning: 4,
+        error: 1,
+        success: 2
+      },
+      recent: 5 // signals in last 24 hours
+    };
+    
+    sendResponse(res, 200, true, stats, "Signal statistics retrieved successfully");
+    
+  } catch (error) {
+    console.error('❌ Get signal stats error:', error);
+    sendResponse(res, 500, false, null, null, "Failed to retrieve signal statistics", error.message);
   }
 });
 

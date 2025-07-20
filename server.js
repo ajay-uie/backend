@@ -116,7 +116,7 @@ app.use((req, res, next) => {
 });
 
 // ✅ Health check (no rate limiting)
-app.get("/api/health-check", (req, res) => {
+app.get("/health-check", (req, res) => {
   res.status(200).json({
     status: "OK",
     timestamp: new Date().toISOString(),
@@ -128,7 +128,7 @@ app.get("/api/health-check", (req, res) => {
 });
 
 // ✅ Health check alias (for frontend compatibility)
-app.get("/api/health", (req, res) => {
+app.get("/health", (req, res) => {
   res.status(200).json({
     success: true,
     status: "OK",
@@ -141,7 +141,7 @@ app.get("/api/health", (req, res) => {
 });
 
 // ✅ Missing Countdown API Routes
-app.get("/api/countdown/active", (req, res) => {
+app.get("/countdown/active", (req, res) => {
   res.status(200).json({
     success: true,
     data: {
@@ -192,27 +192,27 @@ app.get("/", (req, res) => {
     },
     endpoints: {
       // Primary endpoints (new routes)
-      health: "/api/health",
-      docs: "/api/docs",
-      auth: "/api/auth",
-      admin: "/api/admin",
-      products: "/api/products",
-      orders: "/api/orders",
-      cart: "/api/cart",
-      users: "/api/users",
-      wishlist: "/api/wishlist",
-      reviews: "/api/reviews",
-      coupons: "/api/coupons",
-      payments: "/api/payments",
+      health: "/health",
+      docs: "/docs",
+      auth: "/auth",
+      admin: "/admin",
+      products: "/products",
+      orders: "/orders",
+      cart: "/cart",
+      users: "/users",
+      wishlist: "/wishlist",
+      reviews: "/reviews",
+      coupons: "/coupons",
+      payments: "/payments",
       // Legacy endpoints (original routes)
-      "auth-legacy": "/api/auth-legacy",
-      "admin-auth-legacy": "/api/admin/auth-legacy",
-      "products-legacy": "/api/products-legacy",
-      "orders-legacy": "/api/orders-legacy",
-      "cart-legacy": "/api/cart-legacy",
-      "users-legacy": "/api/users-legacy",
-      "wishlist-legacy": "/api/wishlist-legacy",
-      "coupons-legacy": "/api/coupons-legacy"
+      "auth-legacy": "/auth-legacy",
+      "admin-auth-legacy": "/admin/auth-legacy",
+      "products-legacy": "/products-legacy",
+      "orders-legacy": "/orders-legacy",
+      "cart-legacy": "/cart-legacy",
+      "users-legacy": "/users-legacy",
+      "wishlist-legacy": "/wishlist-legacy",
+      "coupons-legacy": "/coupons-legacy"
     }
   });
 });
@@ -221,91 +221,91 @@ app.get("/", (req, res) => {
 
 // ========== AUTHENTICATION ROUTES ==========
 // New routes (primary)
-app.use("/api/auth", authLimiter, require("./routes_new/auth"));
-app.use("/api/admin/auth", authLimiter, require("./routes_new/adminAuth"));
+app.use("/auth", authLimiter, require("./routes_new/auth"));
+app.use("/admin/auth", authLimiter, require("./routes_new/adminAuth"));
 
 // ========== ADMIN ROUTES ==========
 // New admin routes (primary)
-app.use("/api/admin", strictLimiter, require("./routes_new/admin"));
+app.use("/admin", strictLimiter, require("./routes_new/admin"));
 
 // ========== PUBLIC API ROUTES ==========
 // New routes (primary) - FIXED ORDER
-app.use('/api/products', apiLimiter, require('./routes_new/products'));
-app.use("/api/orders", apiLimiter, require("./routes_new/orders"));
-app.use("/api/cart", apiLimiter, require("./routes_new/cart"));
-app.use("/api/users", apiLimiter, require("./routes_new/users"));
-app.use("/api/wishlist", apiLimiter, require("./routes_new/wishlist"));
-app.use("/api/coupons", apiLimiter, require("./routes_new/coupons"));
+app.use('/products', apiLimiter, require('./routes_new/products'));
+app.use("/orders", apiLimiter, require("./routes_new/orders"));
+app.use("/cart", apiLimiter, require("./routes_new/cart"));
+app.use("/users", apiLimiter, require("./routes_new/users"));
+app.use("/wishlist", apiLimiter, require("./routes_new/wishlist"));
+app.use("/coupons", apiLimiter, require("./routes_new/coupons"));
 
 // ========== NEW ROUTES ==========
 // Reviews routes
-app.use("/api/reviews", apiLimiter, require("./routes_new/reviews"));
+app.use("/reviews", apiLimiter, require("./routes_new/reviews"));
 
 // Payment routes
-app.use("/api/payments", strictLimiter, require("./routes_new/payments"));
+app.use("/payments", strictLimiter, require("./routes_new/payments"));
 
 // Auth Enhanced routes
-app.use("/api/auth-enhanced", authLimiter, require("./routes_new/auth-enhanced"));
+app.use("/auth-enhanced", authLimiter, require("./routes_new/auth-enhanced"));
 
 // Payments API routes
-app.use("/api/payments-api", strictLimiter, require("./routes_new/payments-api"));
+app.use("/payments-api", strictLimiter, require("./routes_new/payments-api"));
 
 // Realtime routes (original)
-app.use("/api/realtime", apiLimiter, require("./routes/realtime"));
+app.use("/realtime", apiLimiter, require("./routes/realtime"));
 
 // Webhook routes (original)
-app.use("/api/webhooks", require("./routes/webhooks"));
+app.use("/webhooks", require("./routes/webhooks"));
 
 // ========== LEGACY ROUTES (BACKUP) ==========
 // Original routes (legacy support with different prefixes)
-app.use("/api/auth-legacy", authLimiter, require("./routes/auth"));
-app.use("/api/admin/auth-legacy", authLimiter, require("./routes/adminAuth"));
-app.use('/api/products-legacy', apiLimiter, require('./routes/products'));
-app.use("/api/orders-legacy", apiLimiter, require("./routes/orders"));
-app.use("/api/cart-legacy", apiLimiter, require("./routes/cart"));
-app.use("/api/users-legacy", apiLimiter, require("./routes/users"));
-app.use("/api/wishlist-legacy", apiLimiter, require("./routes/wishlist"));
-app.use("/api/coupons-legacy", apiLimiter, require("./routes/coupons"));
+app.use("/auth-legacy", authLimiter, require("./routes/auth"));
+app.use("/admin/auth-legacy", authLimiter, require("./routes/adminAuth"));
+app.use('/products-legacy', apiLimiter, require('./routes/products'));
+app.use("/orders-legacy", apiLimiter, require("./routes/orders"));
+app.use("/cart-legacy", apiLimiter, require("./routes/cart"));
+app.use("/users-legacy", apiLimiter, require("./routes/users"));
+app.use("/wishlist-legacy", apiLimiter, require("./routes/wishlist"));
+app.use("/coupons-legacy", apiLimiter, require("./routes/coupons"));
 
 // ========== EXTRA ROUTES (NEW FEATURES) ==========
 // Analytics routes
 try {
-  app.use("/api/analytics", apiLimiter, require("./routes_extra/analytics"));
+  app.use("/analytics", apiLimiter, require("./routes_extra/analytics"));
 } catch (error) {
   console.warn("⚠️ Analytics routes not available:", error.message);
 }
 
 // Notifications routes
 try {
-  app.use("/api/notifications", apiLimiter, require("./routes_extra/notifications"));
+  app.use("/notifications", apiLimiter, require("./routes_extra/notifications"));
 } catch (error) {
   console.warn("⚠️ Notifications routes not available:", error.message);
 }
 
 // Inventory management routes
 try {
-  app.use("/api/inventory", apiLimiter, require("./routes_extra/inventory"));
+  app.use("/inventory", apiLimiter, require("./routes_extra/inventory"));
 } catch (error) {
   console.warn("⚠️ Inventory routes not available:", error.message);
 }
 
 // Shipping routes
 try {
-  app.use("/api/shipping", apiLimiter, require("./routes_extra/shipping"));
+  app.use("/shipping", apiLimiter, require("./routes_extra/shipping"));
 } catch (error) {
   console.warn("⚠️ Shipping routes not available:", error.message);
 }
 
 // Support system routes
 try {
-  app.use("/api/support", apiLimiter, require("./routes_extra/support"));
+  app.use("/support", apiLimiter, require("./routes_extra/support"));
 } catch (error) {
   console.warn("⚠️ Support routes not available:", error.message);
 }
 
 // Marketing routes
 try {
-  app.use("/api/marketing", strictLimiter, require("./routes_extra/marketing"));
+  app.use("/marketing", strictLimiter, require("./routes_extra/marketing"));
 } catch (error) {
   console.warn("⚠️ Marketing routes not available:", error.message);
 }
@@ -313,7 +313,7 @@ try {
 // Test data routes (development only)
 if (NODE_ENV === 'development') {
   try {
-    app.use("/api/test-data", require("./routes/test-data"));
+    app.use("/test-data", require("./routes/test-data"));
   } catch (error) {
     console.warn("⚠️ Test data routes not available:", error.message);
   }
@@ -321,14 +321,14 @@ if (NODE_ENV === 'development') {
 
 // ✅ API Documentation route
 try {
-  app.use("/api/docs", require("./routes/api-docs"));
+  app.use("/docs", require("./routes/api-docs"));
 } catch (error) {
   console.warn("⚠️ API docs routes not available:", error.message);
 }
 
 // ✅ API Documentation route (development only)
 if (NODE_ENV === 'development') {
-  app.get("/api/docs", (req, res) => {
+  app.get("/docs", (req, res) => {
     const routes = [];
     
     app._router.stack.forEach((middleware) => {
@@ -465,8 +465,8 @@ server.listen(PORT, () => {
   console.log(`✅ All routes fixed and available`);
   
   if (NODE_ENV === 'development') {
-    console.log(`📚 API Docs: http://localhost:${PORT}/api/docs`);
-    console.log(`❤️ Health Check: http://localhost:${PORT}/api/health`);
+    console.log(`📚 API Docs: http://localhost:${PORT}/docs`);
+    console.log(`❤️ Health Check: http://localhost:${PORT}/health`);
   }
 });
 
